@@ -1,0 +1,44 @@
+{"timestamp":"2026-05-14T10:39:24.529Z","type":"invoice_pdf_generated","message":"Invoice PDF generated: 312885-10-25","details":{"invoice_number":"312885-10-25","path":"C:\\Users\\mlche\\healthlines\\healthlines-ai\\data\\invoices\\312885-10-25.pdf"}}
+{"timestamp":"2026-05-15T10:22:57.392Z","type":"scheduler","message":"Local scheduler started"}
+{"timestamp":"2026-05-15T10:25:00.019Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T10:30:00.028Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T10:35:00.018Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T10:40:00.022Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T10:45:00.021Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T10:50:00.027Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T10:55:00.005Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T11:00:00.020Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T11:05:00.028Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T11:10:00.012Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T11:15:00.017Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T11:20:00.026Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T11:25:00.024Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T11:30:00.019Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T11:35:00.023Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T11:40:00.028Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T11:45:00.030Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T11:50:00.030Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T11:55:00.006Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T12:00:00.021Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T12:05:00.027Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T12:10:00.020Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T12:15:00.016Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T12:20:00.021Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T12:25:00.023Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T12:30:00.030Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T12:35:00.021Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T12:40:00.028Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T12:45:00.022Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T12:50:00.027Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T12:55:00.022Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T13:00:00.032Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T13:05:00.021Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T13:10:00.024Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T13:15:00.024Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T13:20:00.023Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T13:25:00.026Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T13:30:00.028Z","type":"scheduler","message":"Local automation cycle tick"}
+{"timestamp":"2026-05-15T16:10:10.990Z","type":"file_backup_created","message":"Backup created before file write","details":{"original":"C:\\Users\\mlche\\healthlines\\healthlines-ai\\data\\clients\\davita\\test_location.xlsx","backup":"C:\\Users\\mlche\\healthlines\\healthlines-ai\\data\\backups\\2026-05-15T16-10-10-987Z-test_location.xlsx"}}
+{"timestamp":"2026-05-15T16:10:11.003Z","type":"file_backup_created","message":"Backup created before file write","details":{"original":"C:\\Users\\mlche\\healthlines\\healthlines-ai\\data\\clients\\davita\\master.xlsx","backup":"C:\\Users\\mlche\\healthlines\\healthlines-ai\\data\\backups\\2026-05-15T16-10-11-002Z-master.xlsx"}}
+{"timestamp":"2026-05-15T16:10:11.012Z","type":"file_backup_created","message":"Backup created before file write","details":{"original":"C:\\Users\\mlche\\healthlines\\healthlines-ai\\data\\clients\\davita\\master.xlsx","backup":"C:\\Users\\mlche\\healthlines\\healthlines-ai\\data\\backups\\2026-05-15T16-10-11-010Z-master.xlsx"}}
+{"timestamp":"2026-05-16T11:27:46.800Z","type":"invoice_cycle_generated","message":"Invoice cycle generated","details":{"client":"davita","total_delivery_rows":0,"invoice_groups":0,"mrn_received":0,"mrn_pending":0,"mrn_overdue":0,"missing_rates":0,"excelPath":"C:\\Users\\mlche\\healthlines\\healthlines-ai\\data\\invoices\\invoice_cycle_1778930866769.xlsx"}}

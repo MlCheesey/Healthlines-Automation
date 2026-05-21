@@ -1,0 +1,18 @@
+{
+  "worker_started_at": "2026-05-16T12:02:44.584Z",
+  "app_url": "http://localhost:3000",
+  "status": "running",
+  "updated_at": "2026-05-16T18:18:47.510Z",
+  "gmail_cycle_last_run_at": "2026-05-16T18:18:47.494Z",
+  "gmail_cycle_last_success": false,
+  "gmail_cycle_last_status": 500,
+  "gmail_cycle_last_result": {
+    "error": "No access, refresh token, API key or refresh handler callback is set."
+  },
+  "mrn_watcher_last_run_at": "2026-05-16T18:02:46.081Z",
+  "mrn_watcher_last_success": false,
+  "mrn_watcher_last_status": 500,
+  "mrn_watcher_last_result": {
+    "error": "Cannot access file C:\\Users\\mlche\\healthlines\\healthlines-ai\\data\\clients\\davita\\general.xlsx"
+  }
+}

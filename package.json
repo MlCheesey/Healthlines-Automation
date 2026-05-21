@@ -6,15 +6,27 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "worker": "node scripts/healthlines-worker.js"
+    "retry-worker": "node scripts/retry-worker.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "adm-zip": "^0.5.17",
+    "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0",
     "googleapis": "^171.4.0",
+    "groq-sdk": "^1.1.2",
     "jszip": "^3.10.1",
+    "mammoth": "^1.12.0",
     "next": "16.2.6",
+    "next-auth": "^4.24.14",
+    "node-cron": "^4.2.1",
+    "pdf-parse": "^2.4.5",
+    "puppeteer": "^24.43.1",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "tesseract.js": "^7.0.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
