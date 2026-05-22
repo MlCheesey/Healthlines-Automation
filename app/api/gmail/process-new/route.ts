@@ -24,7 +24,7 @@ export async function GET() {
     let pageToken: string | undefined = undefined;
 
     do {
-      const list = await gmail.users.messages.list({
+      const list: any= await gmail.users.messages.list({
         userId: "me",
         maxResults: 25,
         pageToken,

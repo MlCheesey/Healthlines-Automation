@@ -107,13 +107,11 @@ export async function GET() {
   client,
   location,
   dn_number: dnNumber,
-  po_number: row.po_number || "",
 });
 
                 appendMasterRow(client, "Pending_Actions", {
                   client,
                   location,
-                  po_number: row.po_number || "",
                   dn_number: dnNumber,
                   action_type: "MRN Overdue",
                   pending_action:

@@ -70,3 +70,7 @@ export function addLearningRule(
 export function getLearningMemory() {
   return read().reverse();
 }
+
+export function addLearningMemory(row: any) {
+  return addLearningRule(row);
+}

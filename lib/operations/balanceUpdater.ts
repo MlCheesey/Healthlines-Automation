@@ -5,11 +5,17 @@ import { backupFile } from "@/lib/system/backup";
 import { logSystemEvent, logSystemError } from "@/lib/system/logger";
 
 function safeName(value: string) {
-  return String(value || "general")
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "") || "general";
+  return (
+    String(value || "general")
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "general"
+  );
+}
+
+function normalize(value: any) {
+  return String(value || "").trim().toLowerCase();
 }
 
 function readRows(workbook: XLSX.WorkBook, sheetName: string) {
@@ -22,12 +28,14 @@ export function updateBalanceAfterDelivery({
   client,
   location,
   po_number,
+  item_code,
   item_name,
   delivered_qty,
 }: {
   client: string;
   location: string;
   po_number: string;
+  item_code?: string;
   item_name: string;
   delivered_qty: number;
 }) {
@@ -50,16 +58,26 @@ export function updateBalanceAfterDelivery({
     let changed = false;
 
     const updatedRows = rows.map((row: any) => {
+      if (changed) return row;
+
       const samePO = String(row.po_number || "") === String(po_number || "");
-      const sameItem =
-        String(row.item_name || "").trim().toLowerCase() ===
-        String(item_name || "").trim().toLowerCase();
+
+      const hasCodeMatch =
+        item_code &&
+        row.item_code &&
+        normalize(row.item_code) === normalize(item_code);
+
+      const hasNameMatch =
+        normalize(row.item_name) === normalize(item_name);
+
+      const sameItem = hasCodeMatch || (!item_code && hasNameMatch);
 
       if (!samePO || !sameItem) return row;
 
       const requiredQty = Number(row.required_qty || 0);
       const existingDelivered = Number(row.delivered_qty || 0);
-      const newDelivered = existingDelivered + Number(delivered_qty || 0);
+      const deliveryQty = Number(delivered_qty || 0);
+      const newDelivered = existingDelivered + deliveryQty;
       const newBalance = Math.max(0, requiredQty - newDelivered);
 
       changed = true;
@@ -74,7 +92,9 @@ export function updateBalanceAfterDelivery({
     });
 
     if (changed) {
-      workbook.Sheets["Active_Requirements"] = XLSX.utils.json_to_sheet(updatedRows);
+      workbook.Sheets["Active_Requirements"] =
+        XLSX.utils.json_to_sheet(updatedRows);
+
       backupFile(workbookPath);
       XLSX.writeFile(workbook, workbookPath);
 
@@ -82,11 +102,12 @@ export function updateBalanceAfterDelivery({
         client,
         location,
         po_number,
+        item_code: item_code || "",
         item_name,
         delivered_qty,
       });
     }
-  } catch (error) {
+  } catch (error: any) {
     logSystemError("updateBalanceAfterDelivery", error);
   }
 }
