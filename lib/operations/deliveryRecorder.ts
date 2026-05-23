@@ -34,15 +34,40 @@ function safeName(value: string) {
   );
 }
 
+function normalizeDate(value: any) {
+  const raw = String(value || "").trim();
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return raw;
+  }
+
+  if (/^\d{8}$/.test(raw)) {
+    return `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
+  }
+
+  const parsed = new Date(raw);
+
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 10);
+  }
+
+  return new Date().toISOString().slice(0, 10);
+}
+
 function addDays(dateString: string, days: number) {
-  const date = new Date(dateString);
+  const safeDate = normalizeDate(dateString);
+  const date = new Date(safeDate);
+
   date.setDate(date.getDate() + days);
+
   return date.toISOString().slice(0, 10);
 }
 
 export function recordDeliveryNote(delivery: DeliveryRecord) {
   const client = safeName(delivery.client || "davita");
   const location = safeName(delivery.location || "general");
+
+  const dnDate = normalizeDate(delivery.dn_date);
 
   if (
     hasProcessedDN({
@@ -60,14 +85,14 @@ export function recordDeliveryNote(delivery: DeliveryRecord) {
   }
 
   const mrnStatus = delivery.mrn_number ? "Received" : "Pending";
-  const mrnDueDate = addDays(delivery.dn_date, 7);
+  const mrnDueDate = addDays(dnDate, 7);
 
   const rows = delivery.lines.map((line) => ({
     client,
     location,
     po_number: delivery.po_number,
     dn_number: delivery.dn_number,
-    dn_date: delivery.dn_date,
+    dn_date: dnDate,
     item_code: line.item_code || "",
     item_name: line.item_name,
     delivered_qty: Number(line.delivered_qty || 0),
