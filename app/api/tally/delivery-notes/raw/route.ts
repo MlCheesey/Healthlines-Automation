@@ -4,11 +4,12 @@ export async function GET(req: Request) {
   try {
     const url = new URL(req.url);
 
-    const from =
-      url.searchParams.get("from") || "20260401";
+    const from = url.searchParams.get("from") || "20260501";
+    const to = url.searchParams.get("to") || "20260501";
 
-    const to =
-      url.searchParams.get("to") || "20260430";
+    const party =
+      url.searchParams.get("party") ||
+      "Davita Care KSA";
 
     const xml = `
 <ENVELOPE>
@@ -16,8 +17,9 @@ export async function GET(req: Request) {
     <VERSION>1</VERSION>
     <TALLYREQUEST>Export</TALLYREQUEST>
     <TYPE>Collection</TYPE>
-    <ID>HealthLinesDeliveryNotes</ID>
+    <ID>HealthLinesDavitaDeliveryNotes</ID>
   </HEADER>
+
   <BODY>
     <DESC>
       <STATICVARIABLES>
@@ -25,11 +27,13 @@ export async function GET(req: Request) {
         <SVTODATE>${to}</SVTODATE>
         <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
       </STATICVARIABLES>
+
       <TDL>
         <TDLMESSAGE>
-          <COLLECTION NAME="HealthLinesDeliveryNotes" ISMODIFY="No">
+          <COLLECTION NAME="HealthLinesDavitaDeliveryNotes" ISMODIFY="No">
             <TYPE>Voucher</TYPE>
             <FILTER>OnlyDeliveryNotes</FILTER>
+            <FILTER>OnlyDavitaParty</FILTER>
             <FETCH>
               Date,
               VoucherNumber,
@@ -47,6 +51,10 @@ export async function GET(req: Request) {
           <SYSTEM TYPE="Formulae" NAME="OnlyDeliveryNotes">
             $VoucherTypeName = "Delivery Note"
           </SYSTEM>
+
+          <SYSTEM TYPE="Formulae" NAME="OnlyDavitaParty">
+            $$IsSysNameEqual:$PartyLedgerName:"${party}"
+          </SYSTEM>
         </TDLMESSAGE>
       </TDL>
     </DESC>
@@ -60,6 +68,7 @@ export async function GET(req: Request) {
       success: true,
       from,
       to,
+      party,
       raw,
     });
   } catch (error: any) {
