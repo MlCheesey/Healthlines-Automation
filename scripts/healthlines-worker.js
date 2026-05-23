@@ -172,11 +172,16 @@ async function start() {
 
   await runGmailCycle();
   await runMrnWatcher();
+  await runTallyDeliverySync();
   await runInvoiceCycleIfDue();
 
   setInterval(runGmailCycle, GMAIL_INTERVAL_MS);
   setInterval(runMrnWatcher, MRN_INTERVAL_MS);
   setInterval(runInvoiceCycleIfDue, INVOICE_CHECK_INTERVAL_MS);
+  setInterval(
+  runTallyDeliverySync,
+  60 * 60 * 1000
+);
 }
 
 start().catch((error) => {
@@ -189,3 +194,10 @@ start().catch((error) => {
   console.error(error);
   process.exit(1);
 });
+
+async function runTallyDeliverySync() {
+  return callEndpoint(
+    "tally_delivery_sync",
+    `${APP_URL}/api/tally/sync-delivery-notes`
+  );
+}
