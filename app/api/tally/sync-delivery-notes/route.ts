@@ -31,18 +31,32 @@ function writeState(data: any) {
 }
 
 function dateToTallyYYYYMMDD(date: Date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+    const now = new Date();
+    return now.toISOString().slice(0, 10).replace(/-/g, "");
+  }
+
   return date.toISOString().slice(0, 10).replace(/-/g, "");
+}
+
+function isValidTallyDate(value: any) {
+  return typeof value === "string" && /^\d{8}$/.test(value);
 }
 
 function getDefaultFromTo() {
   const state = readState();
 
   const today = new Date();
+
   const fallbackFrom = new Date();
   fallbackFrom.setDate(today.getDate() - 7);
 
+  const safeLastSyncDate = isValidTallyDate(state.last_sync_date)
+    ? state.last_sync_date
+    : "";
+
   return {
-    from: state.last_sync_date || dateToTallyYYYYMMDD(fallbackFrom),
+    from: safeLastSyncDate || dateToTallyYYYYMMDD(fallbackFrom),
     to: dateToTallyYYYYMMDD(today),
   };
 }
@@ -53,8 +67,12 @@ export async function GET(req: Request) {
 
     const defaults = getDefaultFromTo();
 
-    const from = url.searchParams.get("from") || defaults.from;
-    const to = url.searchParams.get("to") || defaults.to;
+    const fromRaw = url.searchParams.get("from") || defaults.from;
+    const toRaw = url.searchParams.get("to") || defaults.to;
+
+    const from = isValidTallyDate(fromRaw) ? fromRaw : defaults.from;
+    const to = isValidTallyDate(toRaw) ? toRaw : defaults.to;
+
     const party = url.searchParams.get("party") || "Davita Care KSA";
 
     const xml = `
@@ -119,7 +137,7 @@ export async function GET(req: Request) {
         location: "general",
         po_number: dn.po_number || "UNKNOWN_PO",
         dn_number: dn.dn_number,
-        dn_date: dn.dn_date,
+        dn_date: dn.dn_date || new Date().toISOString().slice(0, 10),
         lines: dn.lines,
         remarks: dn.remarks || `Synced from Tally party: ${dn.party_name}`,
       });
