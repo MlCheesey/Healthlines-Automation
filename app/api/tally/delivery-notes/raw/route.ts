@@ -1,7 +1,15 @@
 import { postToTally } from "@/lib/tally/tallyClient";
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    const url = new URL(req.url);
+
+    const from =
+      url.searchParams.get("from") || "20260401";
+
+    const to =
+      url.searchParams.get("to") || "20260430";
+
     const xml = `
 <ENVELOPE>
   <HEADER>
@@ -13,12 +21,15 @@ export async function GET() {
   <BODY>
     <DESC>
       <STATICVARIABLES>
+        <SVFROMDATE>${from}</SVFROMDATE>
+        <SVTODATE>${to}</SVTODATE>
         <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
       </STATICVARIABLES>
       <TDL>
         <TDLMESSAGE>
           <COLLECTION NAME="HealthLinesDeliveryNotes" ISMODIFY="No">
             <TYPE>Voucher</TYPE>
+            <FILTER>OnlyDeliveryNotes</FILTER>
             <FETCH>
               Date,
               VoucherNumber,
@@ -32,6 +43,10 @@ export async function GET() {
               AllInventoryEntries.Amount
             </FETCH>
           </COLLECTION>
+
+          <SYSTEM TYPE="Formulae" NAME="OnlyDeliveryNotes">
+            $VoucherTypeName = "Delivery Note"
+          </SYSTEM>
         </TDLMESSAGE>
       </TDL>
     </DESC>
@@ -43,6 +58,8 @@ export async function GET() {
 
     return Response.json({
       success: true,
+      from,
+      to,
       raw,
     });
   } catch (error: any) {
