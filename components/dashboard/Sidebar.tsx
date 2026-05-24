@@ -1,4 +1,6 @@
-const navItems = [
+"use client";
+
+const items = [
   "Dashboard",
   "Emails",
   "Delivery Tasks",
@@ -10,32 +12,43 @@ const navItems = [
   "Settings",
 ];
 
-export default function Sidebar() {
+export default function Sidebar({
+  active,
+  onChange,
+}: {
+  active: string;
+  onChange: (value: string) => void;
+}) {
   return (
-    <aside className="w-64 min-h-screen bg-zinc-950 border-r border-zinc-800 px-5 py-6">
+    <aside className="w-64 min-h-screen bg-zinc-950 border-r border-zinc-800 p-5">
       <div className="mb-10">
-        <h1 className="text-xl font-semibold text-white tracking-tight">
+        <h1 className="text-lg font-bold text-white">
           HealthLines AI
         </h1>
-        <p className="text-xs text-zinc-500 mt-1">
+        <p className="text-xs text-zinc-500">
           Operations Command
         </p>
       </div>
 
-      <nav className="space-y-1">
-        {navItems.map((item) => (
+      <nav className="space-y-2">
+        {items.map((item) => (
           <button
             key={item}
-            className="w-full text-left px-3 py-2.5 rounded-lg text-sm text-zinc-300 hover:bg-zinc-900 hover:text-white transition"
+            onClick={() => onChange(item)}
+            className={`w-full text-left px-3 py-2 rounded-lg text-sm ${
+              active === item
+                ? "bg-zinc-800 text-white"
+                : "text-zinc-400 hover:bg-zinc-900 hover:text-white"
+            }`}
           >
             {item}
           </button>
         ))}
       </nav>
 
-      <div className="mt-10 p-3 rounded-xl bg-zinc-900 border border-zinc-800">
+      <div className="mt-10 bg-zinc-900 border border-zinc-800 rounded-xl p-3">
         <p className="text-xs text-zinc-500">Mode</p>
-        <p className="text-sm text-emerald-400 mt-1">
+        <p className="text-xs text-emerald-400 font-semibold mt-1">
           Non-Interference Build
         </p>
       </div>

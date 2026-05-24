@@ -5,7 +5,6 @@ import { useState } from "react";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
 import KPISection from "@/components/dashboard/KPISection";
-import AIAssistantPanel from "@/components/dashboard/AIAssistantPanel";
 
 import OperationsStatusBoard from "@/components/dashboard/OperationsStatusBoard";
 import SystemOverviewPanel from "@/components/dashboard/SystemOverviewPanel";
@@ -48,28 +47,13 @@ import WorkflowHealthPanel from "@/components/dashboard/WorkflowHealthPanel";
 import WorkflowHistoryPanel from "@/components/dashboard/WorkflowHistoryPanel";
 import FinalReadinessPanel from "@/components/dashboard/FinalReadinessPanel";
 import ProductionReadinessPanel from "@/components/dashboard/ProductionReadinessPanel";
-import SystemLockdownPanel from "@/components/dashboard/SystemLockdownPanel";
-import WorkflowSimulationPanel from "@/components/dashboard/WorkflowSimulationPanel";
-import LocalTestPanel from "@/components/dashboard/LocalTestPanel";
-import AutomationControlPanel from "@/components/dashboard/AutomationControlPanel";
-
-const tabs = [
-  "Overview",
-  "Deliveries",
-  "Invoices",
-  "Approvals",
-  "Gmail Queue",
-  "AI",
-  "System",
-  "Testing",
-];
 
 export default function DashboardPage() {
-  const [activeTab, setActiveTab] = useState("Overview");
+  const [activeTab, setActiveTab] = useState("Dashboard");
 
   return (
     <main className="min-h-screen bg-zinc-950 text-white flex">
-      <Sidebar />
+      <Sidebar active={activeTab} onChange={setActiveTab} />
 
       <div className="flex-1 flex flex-col">
         <Header />
@@ -78,24 +62,8 @@ export default function DashboardPage() {
           <div className="space-y-6">
             <KPISection />
 
-            <div className="flex flex-wrap gap-2 bg-zinc-900 border border-zinc-800 rounded-2xl p-3">
-              {tabs.map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`px-4 py-2 rounded-xl text-sm ${
-                    activeTab === tab
-                      ? "bg-blue-700 text-white"
-                      : "bg-zinc-950 text-zinc-400 hover:text-white hover:bg-zinc-800"
-                  }`}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
-
             <div className="space-y-8">
-              {activeTab === "Overview" && (
+              {activeTab === "Dashboard" && (
                 <>
                   <OperationsStatusBoard />
                   <SystemOverviewPanel />
@@ -106,11 +74,27 @@ export default function DashboardPage() {
                 </>
               )}
 
-              {activeTab === "Deliveries" && (
+              {activeTab === "Delivery Tasks" && (
                 <>
                   <DeliveryTasksPanel />
                   <DeliverySchedulePanel />
                   <PackageActionSummaryPanel />
+                  <DiscrepancyPanel />
+                </>
+              )}
+
+              {activeTab === "Locations" && (
+                <>
+                  <DeliverySchedulePanel />
+                  <PackageActionSummaryPanel />
+                  <OpenActionsPanel />
+                </>
+              )}
+
+              {activeTab === "MRNs" && (
+                <>
+                  <OpenActionsPanel />
+                  <NotificationsPanel />
                   <DiscrepancyPanel />
                 </>
               )}
@@ -127,22 +111,24 @@ export default function DashboardPage() {
                 </>
               )}
 
-              {activeTab === "Approvals" && (
-                <>
-                  <ApprovalQueuePanel />
-                  <ApprovalActionsPanel />
-                  <HumanOverridePanel />
-                </>
-              )}
-
-              {activeTab === "Gmail Queue" && (
+              {activeTab === "Emails" && (
                 <>
                   <GmailQueuePanel />
                   <InvoiceSendQueuePanel />
                 </>
               )}
 
-              {activeTab === "AI" && (
+              {activeTab === "Issues" && (
+                <>
+                  <ApprovalQueuePanel />
+                  <ApprovalActionsPanel />
+                  <HumanOverridePanel />
+                  <RetryQueuePanel />
+                  <NotificationsPanel />
+                </>
+              )}
+
+              {activeTab === "AI Activity" && (
                 <>
                   <AIActivityPanel />
                   <AIFeedbackPanel />
@@ -152,34 +138,22 @@ export default function DashboardPage() {
                 </>
               )}
 
-              {activeTab === "System" && (
+              {activeTab === "Settings" && (
                 <>
-                  <AutomationControlPanel />
                   <WorkflowHealthPanel />
                   <WorkflowHistoryPanel />
                   <AuditTimelinePanel />
                   <SystemLogsPanel />
                   <BackupPanel />
-                  <RetryQueuePanel />
                   <SecurityStatusPanel />
                   <FinalReadinessPanel />
                   <ProductionReadinessPanel />
-                </>
-              )}
-
-              {activeTab === "Testing" && (
-                <>
-                  <SystemLockdownPanel />
-                  <WorkflowSimulationPanel />
-                  <LocalTestPanel />
                 </>
               )}
             </div>
           </div>
         </div>
       </div>
-
-      <AIAssistantPanel />
     </main>
   );
 }
