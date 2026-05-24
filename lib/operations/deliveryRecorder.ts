@@ -11,6 +11,12 @@ type DeliveryLine = {
   rate?: number | null;
   batch?: string;
   expiry?: string;
+  taxable_amount?: number;
+  vat_amount?: number;
+  vat_percent?: number;
+  taxability?: string;
+  tax_reason?: string;
+  needs_vat_review?: boolean;
 };
 
 type DeliveryRecord = {
@@ -37,9 +43,7 @@ function safeName(value: string) {
 function normalizeDate(value: any) {
   const raw = String(value || "").trim();
 
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-    return raw;
-  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
 
   if (/^\d{8}$/.test(raw)) {
     return `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
@@ -99,6 +103,12 @@ export function recordDeliveryNote(delivery: DeliveryRecord) {
     qty: Number(line.delivered_qty || 0),
     unit: line.unit || "",
     rate: line.rate ?? "",
+    taxable_amount: line.taxable_amount ?? "",
+    vat_amount: line.vat_amount ?? "",
+    vat_percent: line.vat_percent ?? "",
+    taxability: line.taxability || "",
+    tax_reason: line.tax_reason || "",
+    needs_vat_review: line.needs_vat_review ? "Yes" : "No",
     batch: line.batch || "",
     expiry: line.expiry || "",
     mrn_number: delivery.mrn_number || "",

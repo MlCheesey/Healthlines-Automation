@@ -31,7 +31,7 @@ function extractText(value: any): string {
 function cleanNumber(value: any) {
   const raw = extractText(value).replace(/,/g, "");
   const match = raw.match(/-?\d+(\.\d+)?/);
-  return match ? Number(match[0]) : 0;
+  return match ? Math.abs(Number(match[0])) : 0;
 }
 
 function extractUnitFromQty(value: any) {
@@ -56,6 +56,116 @@ function pick(obj: any, keys: string[]) {
   }
 
   return "";
+}
+
+function collectNestedObjects(obj: any, keyNames: string[]): any[] {
+  const found: any[] = [];
+
+  function walk(value: any) {
+    if (!value || typeof value !== "object") return;
+
+    for (const [key, child] of Object.entries(value)) {
+      if (keyNames.includes(key)) {
+        found.push(...asArray(child));
+      }
+
+      if (typeof child === "object") {
+        walk(child);
+      }
+    }
+  }
+
+  walk(obj);
+
+  return found;
+}
+
+function collectNestedNumbersByKey(obj: any, keyNames: string[]) {
+  const values: number[] = [];
+
+  function walk(value: any) {
+    if (!value || typeof value !== "object") return;
+
+    for (const [key, child] of Object.entries(value)) {
+      if (keyNames.includes(key)) {
+        const n = cleanNumber(child);
+        if (n > 0) values.push(n);
+      }
+
+      if (typeof child === "object") {
+        walk(child);
+      }
+    }
+  }
+
+  walk(obj);
+
+  return values;
+}
+
+function looksLikeVatLedgerName(value: any) {
+  const text = extractText(value).toLowerCase();
+
+  return (
+    text.includes("vat") ||
+    text.includes("tax") ||
+    text.includes("output vat") ||
+    text.includes("output tax")
+  );
+}
+
+function extractLineVatAmount(entry: any) {
+  const directVatNumbers = collectNestedNumbersByKey(entry, [
+    "VATAMOUNT",
+    "TAXAMOUNT",
+    "GSTAMOUNT",
+    "OUTPUTVATAMOUNT",
+    "OUTPUTTAXAMOUNT",
+  ]);
+
+  if (directVatNumbers.length > 0) {
+    return directVatNumbers.reduce((sum, n) => sum + n, 0);
+  }
+
+  const allocations = collectNestedObjects(entry, [
+    "ACCOUNTINGALLOCATIONS.LIST",
+    "ACCOUNTINGALLOCATIONS",
+    "LEDGERENTRIES.LIST",
+    "LEDGERENTRIES",
+  ]);
+
+  let vatAmount = 0;
+
+  for (const allocation of allocations) {
+    const ledgerName = pick(allocation, [
+      "LEDGERNAME",
+      "LEDGER",
+      "ACCOUNTINGLEDGER",
+      "NAME",
+    ]);
+
+    if (!looksLikeVatLedgerName(ledgerName)) continue;
+
+    vatAmount += cleanNumber(
+      pick(allocation, ["AMOUNT", "TAXAMOUNT", "VATAMOUNT", "GSTAMOUNT"])
+    );
+  }
+
+  return vatAmount;
+}
+
+function calculateVatPercent({
+  vatAmount,
+  taxableAmount,
+}: {
+  vatAmount: number;
+  taxableAmount: number;
+}) {
+  if (!vatAmount || !taxableAmount) return 0;
+
+  const percent = (vatAmount / taxableAmount) * 100;
+
+  return Number(percent.toFixed(2));
 }
 
 export function parseTallyDeliveryNotesXml(xml: string) {
@@ -102,12 +212,39 @@ export function parseTallyDeliveryNotesXml(xml: string) {
         "ITEMNAME",
       ]);
 
+      const rate = cleanNumber(pick(entry, ["RATE", "BASICRATE"])) || null;
+
+      const deliveredQty = cleanNumber(qtyRaw);
+
+      const taxableAmount =
+        cleanNumber(pick(entry, ["AMOUNT", "TAXABLEAMOUNT", "BASICAMOUNT"])) ||
+        Number(((rate || 0) * deliveredQty).toFixed(2));
+
+      const vatAmount = extractLineVatAmount(entry);
+
+      const vatPercent = calculateVatPercent({
+        vatAmount,
+        taxableAmount,
+      });
+
       return {
         item_code: extractText(stockName),
         item_name: extractText(stockName),
-        delivered_qty: cleanNumber(qtyRaw),
+        delivered_qty: deliveredQty,
         unit: extractUnitFromQty(qtyRaw),
-        rate: cleanNumber(pick(entry, ["RATE", "BASICRATE"])) || null,
+        rate,
+        taxable_amount: taxableAmount,
+        vat_amount: vatAmount,
+        vat_percent: vatPercent,
+        taxability:
+          vatAmount > 0
+            ? "Taxable from Tally"
+            : "No VAT from Tally",
+        tax_reason:
+          vatAmount > 0
+            ? "VAT amount extracted from Tally delivery note"
+            : "Tally delivery note did not show VAT amount for this line",
+        needs_vat_review: false,
       };
     });
 

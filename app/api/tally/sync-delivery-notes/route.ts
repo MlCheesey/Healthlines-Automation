@@ -73,7 +73,7 @@ export async function GET(req: Request) {
     const to = isValidTallyDate(toRaw) ? toRaw : defaults.to;
 
     const party = url.searchParams.get("party") || "Davita Care KSA";
-    const limit = Number(url.searchParams.get("limit") || 5);
+    const limit = Number(url.searchParams.get("limit") || 25);
     const dryRun = url.searchParams.get("dryRun") !== "false";
 
     const xml = `
@@ -107,7 +107,18 @@ export async function GET(req: Request) {
               AllInventoryEntries.StockItemName,
               AllInventoryEntries.BilledQty,
               AllInventoryEntries.Rate,
-              AllInventoryEntries.Amount
+              AllInventoryEntries.Amount,
+              AllInventoryEntries.TaxableAmount,
+              AllInventoryEntries.BasicAmount,
+              AllInventoryEntries.VATAmount,
+              AllInventoryEntries.TaxAmount,
+              AllInventoryEntries.GSTAmount,
+              AllInventoryEntries.AccountingAllocations.LedgerName,
+              AllInventoryEntries.AccountingAllocations.Amount,
+              AllInventoryEntries.AccountingAllocations.TaxAmount,
+              AllInventoryEntries.AccountingAllocations.VATAmount,
+              LedgerEntries.LedgerName,
+              LedgerEntries.Amount
             </FETCH>
           </COLLECTION>
 
