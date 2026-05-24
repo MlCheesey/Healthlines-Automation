@@ -25,6 +25,7 @@ export default function Sidebar({
         <h1 className="text-lg font-bold text-white">
           HealthLines AI
         </h1>
+
         <p className="text-xs text-zinc-500">
           Operations Command
         </p>
@@ -34,10 +35,11 @@ export default function Sidebar({
         {items.map((item) => (
           <button
             key={item}
+            type="button"
             onClick={() => onChange(item)}
-            className={`w-full text-left px-3 py-2 rounded-lg text-sm ${
+            className={`w-full text-left px-3 py-2 rounded-lg text-sm transition ${
               active === item
-                ? "bg-zinc-800 text-white"
+                ? "bg-blue-700 text-white"
                 : "text-zinc-400 hover:bg-zinc-900 hover:text-white"
             }`}
           >
@@ -47,9 +49,9 @@ export default function Sidebar({
       </nav>
 
       <div className="mt-10 bg-zinc-900 border border-zinc-800 rounded-xl p-3">
-        <p className="text-xs text-zinc-500">Mode</p>
+        <p className="text-xs text-zinc-500">Current Section</p>
         <p className="text-xs text-emerald-400 font-semibold mt-1">
-          Non-Interference Build
+          {active}
         </p>
       </div>
     </aside>

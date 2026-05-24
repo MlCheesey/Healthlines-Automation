@@ -60,6 +60,13 @@ export default function DashboardPage() {
 
         <div className="flex-1 overflow-y-auto p-8">
           <div className="space-y-6">
+            <div>
+              <p className="text-sm text-zinc-500">Current Section</p>
+              <h1 className="text-3xl font-semibold text-white">
+                {activeTab}
+              </h1>
+            </div>
+
             <KPISection />
 
             <div className="space-y-8">
