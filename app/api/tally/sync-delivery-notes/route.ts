@@ -30,6 +30,10 @@ function writeState(data: any) {
   fs.writeFileSync(STATE_FILE, JSON.stringify(data, null, 2));
 }
 
+function isValidTallyDate(value: any) {
+  return typeof value === "string" && /^\d{8}$/.test(value);
+}
+
 function dateToTallyYYYYMMDD(date: Date) {
   if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
     const now = new Date();
@@ -39,17 +43,12 @@ function dateToTallyYYYYMMDD(date: Date) {
   return date.toISOString().slice(0, 10).replace(/-/g, "");
 }
 
-function isValidTallyDate(value: any) {
-  return typeof value === "string" && /^\d{8}$/.test(value);
-}
-
 function getDefaultFromTo() {
   const state = readState();
 
   const today = new Date();
-
   const fallbackFrom = new Date();
-  fallbackFrom.setDate(today.getDate() - 7);
+  fallbackFrom.setDate(today.getDate() - 1);
 
   const safeLastSyncDate = isValidTallyDate(state.last_sync_date)
     ? state.last_sync_date
@@ -74,6 +73,8 @@ export async function GET(req: Request) {
     const to = isValidTallyDate(toRaw) ? toRaw : defaults.to;
 
     const party = url.searchParams.get("party") || "Davita Care KSA";
+    const limit = Number(url.searchParams.get("limit") || 5);
+    const dryRun = url.searchParams.get("dryRun") !== "false";
 
     const xml = `
 <ENVELOPE>
@@ -126,10 +127,24 @@ export async function GET(req: Request) {
 
     const raw = await postToTally(xml);
     const deliveryNotes = parseTallyDeliveryNotesXml(raw);
+    const limitedNotes = deliveryNotes.slice(0, limit);
+
+    if (dryRun) {
+      return Response.json({
+        success: true,
+        mode: "dryRun",
+        from,
+        to,
+        party,
+        total_found: deliveryNotes.length,
+        limited_to: limit,
+        sample: limitedNotes,
+      });
+    }
 
     const results = [];
 
-    for (const dn of deliveryNotes) {
+    for (const dn of limitedNotes) {
       if (!dn.dn_number || dn.lines.length === 0) continue;
 
       const result = recordDeliveryNote({
@@ -158,10 +173,12 @@ export async function GET(req: Request) {
 
     return Response.json({
       success: true,
+      mode: "live",
       from,
       to,
       party,
       total_found: deliveryNotes.length,
+      limited_to: limit,
       results,
     });
   } catch (error: any) {
