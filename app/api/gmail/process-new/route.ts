@@ -6,6 +6,21 @@ import {
 import { internalFetch } from "@/lib/system/internalFetch";
 import { logSystemEvent, logSystemError } from "@/lib/system/logger";
 
+function pickEmailText(emailData: any) {
+  const candidates = [
+    emailData?.combined_text,
+    emailData?.text,
+    emailData?.body,
+    emailData?.plainText,
+    emailData?.snippet,
+    emailData?.subject,
+  ];
+
+  return candidates
+    .map((v) => String(v || "").trim())
+    .find((v) => v.length > 0) || "";
+}
+
 export async function GET() {
   try {
     const oauth2Client = new google.auth.OAuth2(
@@ -18,13 +33,16 @@ export async function GET() {
       refresh_token: process.env.GOOGLE_REFRESH_TOKEN,
     });
 
-    const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+    const gmail = google.gmail({
+      version: "v1",
+      auth: oauth2Client,
+    });
 
     const allMessages: any[] = [];
     let pageToken: string | undefined = undefined;
 
     do {
-      const list: any= await gmail.users.messages.list({
+      const list: any = await gmail.users.messages.list({
         userId: "me",
         maxResults: 25,
         pageToken,
@@ -53,15 +71,36 @@ export async function GET() {
       const emailData = await readRes.json();
 
       if (!readRes.ok) {
-        results.push({ id: msg.id, error: emailData.error });
+        results.push({
+          id: msg.id,
+          error: emailData.error || "Failed to read email",
+        });
+        continue;
+      }
+
+      const safeText = pickEmailText(emailData);
+
+      if (!safeText.trim()) {
+        results.push({
+          id: msg.id,
+          subject: emailData.subject || "",
+          skipped: true,
+          reason: "empty_email_text",
+        });
+
+        markEmailProcessed(msg.id);
         continue;
       }
 
       const analyzeRes = await internalFetch("/api/analyze-email", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
-          combined_text: emailData.combined_text,
+          combined_text: safeText,
+          text: safeText,
+          subject: emailData.subject || "",
           source_email_id: msg.id,
         }),
       });
@@ -69,13 +108,19 @@ export async function GET() {
       const analysis = await analyzeRes.json();
 
       if (!analyzeRes.ok) {
-        results.push({ id: msg.id, error: analysis.error });
+        results.push({
+          id: msg.id,
+          subject: emailData.subject || "",
+          error: analysis.error || "Analyze email failed",
+        });
         continue;
       }
 
       const processRes = await internalFetch("/api/process-email", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
           ...analysis,
           source_email_id: msg.id,
@@ -90,28 +135,39 @@ export async function GET() {
 
       results.push({
         id: msg.id,
-        subject: emailData.subject,
+        subject: emailData.subject || "",
         analysis,
         processResult,
       });
     }
 
-    logSystemEvent("gmail_process_new_completed", "Gmail processing completed", {
-      checked: allMessages.length,
-      processed: results.filter((r: any) => !r.skipped && !r.error).length,
-      skipped: results.filter((r: any) => r.skipped).length,
-    });
+    logSystemEvent(
+      "gmail_process_new_completed",
+      "Gmail processing completed",
+      {
+        checked: allMessages.length,
+        processed: results.filter((r: any) => !r.skipped && !r.error).length,
+        skipped: results.filter((r: any) => r.skipped).length,
+        errors: results.filter((r: any) => r.error).length,
+      }
+    );
 
     return Response.json({
       success: true,
       checked: allMessages.length,
+      processed: results.filter((r: any) => !r.skipped && !r.error).length,
+      skipped: results.filter((r: any) => r.skipped).length,
+      errors: results.filter((r: any) => r.error).length,
       results,
     });
   } catch (error: any) {
     logSystemError("gmail-process-new", error);
 
     return Response.json(
-      { error: error.message || "Process new Gmail emails failed" },
+      {
+        success: false,
+        error: error?.message || "Process new Gmail emails failed",
+      },
       { status: 500 }
     );
   }
