@@ -6,6 +6,36 @@ import {
 import { internalFetch } from "@/lib/system/internalFetch";
 import { logSystemEvent, logSystemError } from "@/lib/system/logger";
 
+const ALLOWED_DOMAINS = [
+  "davita.com",
+  "davita.sa",
+];
+
+const ALLOWED_SENDERS = [
+  "info.hlines@gmail.com",
+
+  // Add exact DaVita sender emails here later if needed:
+  // "procurement.person@davita.com",
+];
+
+function extractEmailAddress(value: string) {
+  const raw = String(value || "").trim().toLowerCase();
+  const match = raw.match(/<([^>]+)>/);
+  return (match ? match[1] : raw).trim().toLowerCase();
+}
+
+function isAllowedSender(from: string) {
+  const email = extractEmailAddress(from);
+  const domain = email.split("@")[1] || "";
+
+  return (
+    ALLOWED_SENDERS.includes(email) ||
+    ALLOWED_DOMAINS.some(
+      (allowed) => domain === allowed || domain.endsWith(`.${allowed}`)
+    )
+  );
+}
+
 function pickEmailText(emailData: any) {
   const candidates = [
     emailData?.combined_text,
@@ -16,9 +46,11 @@ function pickEmailText(emailData: any) {
     emailData?.subject,
   ];
 
-  return candidates
-    .map((v) => String(v || "").trim())
-    .find((v) => v.length > 0) || "";
+  return (
+    candidates
+      .map((v) => String(v || "").trim())
+      .find((v) => v.length > 0) || ""
+  );
 }
 
 export async function GET() {
@@ -78,12 +110,28 @@ export async function GET() {
         continue;
       }
 
+      const from = emailData.from || emailData.sender || "";
+
+      if (!isAllowedSender(from)) {
+        results.push({
+          id: msg.id,
+          subject: emailData.subject || "",
+          from,
+          skipped: true,
+          reason: "sender_not_allowed",
+        });
+
+        markEmailProcessed(msg.id);
+        continue;
+      }
+
       const safeText = pickEmailText(emailData);
 
       if (!safeText.trim()) {
         results.push({
           id: msg.id,
           subject: emailData.subject || "",
+          from,
           skipped: true,
           reason: "empty_email_text",
         });
@@ -101,6 +149,7 @@ export async function GET() {
           combined_text: safeText,
           text: safeText,
           subject: emailData.subject || "",
+          from,
           source_email_id: msg.id,
         }),
       });
@@ -111,6 +160,7 @@ export async function GET() {
         results.push({
           id: msg.id,
           subject: emailData.subject || "",
+          from,
           error: analysis.error || "Analyze email failed",
         });
         continue;
@@ -124,6 +174,7 @@ export async function GET() {
         body: JSON.stringify({
           ...analysis,
           source_email_id: msg.id,
+          source_email_from: from,
         }),
       });
 
@@ -136,28 +187,33 @@ export async function GET() {
       results.push({
         id: msg.id,
         subject: emailData.subject || "",
+        from,
         analysis,
         processResult,
       });
     }
+
+    const processed = results.filter((r: any) => !r.skipped && !r.error).length;
+    const skipped = results.filter((r: any) => r.skipped).length;
+    const errors = results.filter((r: any) => r.error).length;
 
     logSystemEvent(
       "gmail_process_new_completed",
       "Gmail processing completed",
       {
         checked: allMessages.length,
-        processed: results.filter((r: any) => !r.skipped && !r.error).length,
-        skipped: results.filter((r: any) => r.skipped).length,
-        errors: results.filter((r: any) => r.error).length,
+        processed,
+        skipped,
+        errors,
       }
     );
 
     return Response.json({
       success: true,
       checked: allMessages.length,
-      processed: results.filter((r: any) => !r.skipped && !r.error).length,
-      skipped: results.filter((r: any) => r.skipped).length,
-      errors: results.filter((r: any) => r.error).length,
+      processed,
+      skipped,
+      errors,
       results,
     });
   } catch (error: any) {
