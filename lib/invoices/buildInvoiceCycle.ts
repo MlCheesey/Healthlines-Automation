@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import * as XLSX from "xlsx";
+import { DATA_ROOT } from "@/lib/config/storage";
 
 function safeName(value: string) {
   return (
@@ -22,7 +23,7 @@ function readSheet(filePath: string, sheetName: string) {
     if (!sheet) return [];
 
     return XLSX.utils.sheet_to_json<any>(sheet, { defval: "" });
-  } catch (error: any) {
+  } catch {
     return [];
   }
 }
@@ -65,12 +66,7 @@ function groupKey(row: any) {
 export function buildInvoiceCycle(client: string) {
   const safeClient = safeName(client || "davita");
 
-  const clientPath = path.join(
-    process.cwd(),
-    "data",
-    "clients",
-    safeClient
-  );
+  const clientPath = path.join(DATA_ROOT, "clients", safeClient);
 
   const packageId = `PKG-${new Date()
     .toISOString()
@@ -95,6 +91,14 @@ export function buildInvoiceCycle(client: string) {
       mrn_overdue: [],
       skipped_already_packaged: [],
       read_errors: [],
+      counts: {
+        total_invoice_groups: 0,
+        ready_invoice_groups: 0,
+        blocked_invoice_groups: 0,
+        mrn_pending: 0,
+        mrn_overdue: 0,
+        skipped_already_packaged: 0,
+      },
     };
   }
 
@@ -193,9 +197,12 @@ export function buildInvoiceCycle(client: string) {
         rate: row.rate ?? "",
         batch: row.batch || "",
         expiry: row.expiry || "",
+        taxable_amount: row.taxable_amount ?? "",
+        vat_amount: row.vat_amount ?? "",
         vat_percent: row.vat_percent ?? "",
         taxability: row.taxability || "",
         tax_reason: row.tax_reason || "",
+        needs_vat_review: row.needs_vat_review || "",
       });
     }
   }
@@ -215,8 +222,10 @@ export function buildInvoiceCycle(client: string) {
     read_errors: readErrors,
     counts: {
       total_invoice_groups: invoiceGroups.length,
-      ready_invoice_groups: invoiceGroups.filter((g) => !g.has_missing_rate).length,
-      blocked_invoice_groups: invoiceGroups.filter((g) => g.has_missing_rate).length,
+      ready_invoice_groups: invoiceGroups.filter((g) => !g.has_missing_rate)
+        .length,
+      blocked_invoice_groups: invoiceGroups.filter((g) => g.has_missing_rate)
+        .length,
       mrn_pending: mrnPending.length,
       mrn_overdue: mrnOverdue.length,
       skipped_already_packaged: skippedAlreadyPackaged.length,

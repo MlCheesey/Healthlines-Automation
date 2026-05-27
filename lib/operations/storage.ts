@@ -1,4 +1,5 @@
 import { backupFile } from "@/lib/system/backup";
+import { DATA_ROOT } from "@/lib/config/storage";
 import fs from "fs";
 import path from "path";
 import * as XLSX from "xlsx";
@@ -20,15 +21,17 @@ function ensureDir(dirPath: string) {
 }
 
 function safeName(value: string) {
-  return String(value || "general")
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "") || "general";
+  return (
+    String(value || "general")
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "general"
+  );
 }
 
 export function getClientPath(client: string) {
-  return path.join(process.cwd(), "data", "clients", safeName(client));
+  return path.join(DATA_ROOT, "clients", safeName(client));
 }
 
 export function getWorkbookPath(client: string, location: string) {
@@ -47,14 +50,14 @@ function createBlankWorkbook() {
 }
 
 function writeWorkbook(workbook: XLSX.WorkBook, workbookPath: string) {
+  ensureDir(path.dirname(workbookPath));
+
   const buffer = XLSX.write(workbook, {
     type: "buffer",
     bookType: "xlsx",
   });
 
-  // Create backup before overwriting existing workbook
   backupFile(workbookPath);
-
   fs.writeFileSync(workbookPath, buffer);
 }
 

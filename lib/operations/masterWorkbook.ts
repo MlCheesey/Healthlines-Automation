@@ -1,33 +1,37 @@
 import { backupFile } from "@/lib/system/backup";
+import { DATA_ROOT } from "@/lib/config/storage";
 import fs from "fs";
 import path from "path";
 import * as XLSX from "xlsx";
 
 const MASTER_SHEETS = [
-  "PO_Control",
-  "Location_Summary",
-  "Pending_Actions",
+  "Master_PO",
   "MRN_Tracker",
   "Invoice_Tracker",
+  "Pending_Actions",
+  "Invoice_Approvals",
+  "Issues",
   "AI_Log",
 ];
 
 function ensureDir(dirPath: string) {
-  if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
+  if (!fs.existsSync(dirPath)) {
+    fs.mkdirSync(dirPath, { recursive: true });
+  }
 }
 
 function safeName(value: string) {
-  return String(value || "general")
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "") || "general";
+  return (
+    String(value || "general")
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "general"
+  );
 }
 
 export function getMasterWorkbookPath(client: string) {
-  const clientPath = path.join(process.cwd(), "data", "clients", safeName(client));
-  ensureDir(clientPath);
-  return path.join(clientPath, "master.xlsx");
+  return path.join(DATA_ROOT, "clients", safeName(client), "master.xlsx");
 }
 
 function createBlankMasterWorkbook() {
@@ -41,31 +45,37 @@ function createBlankMasterWorkbook() {
   return workbook;
 }
 
-function writeWorkbook(workbook: XLSX.WorkBook, filePath: string) {
+function writeWorkbook(workbook: XLSX.WorkBook, workbookPath: string) {
+  ensureDir(path.dirname(workbookPath));
+
   const buffer = XLSX.write(workbook, {
     type: "buffer",
     bookType: "xlsx",
   });
 
-  backupFile(filePath);
-  
-  fs.writeFileSync(filePath, buffer);
+  backupFile(workbookPath);
+  fs.writeFileSync(workbookPath, buffer);
 }
 
-function readWorkbook(filePath: string) {
-  const buffer = fs.readFileSync(filePath);
-  return XLSX.read(buffer, { type: "buffer" });
+function readWorkbook(workbookPath: string) {
+  const buffer = fs.readFileSync(workbookPath);
+
+  return XLSX.read(buffer, {
+    type: "buffer",
+  });
 }
 
-export function ensureMasterWorkbook(client: string) {
-  const filePath = getMasterWorkbookPath(client);
+export function createMasterWorkbook(client: string) {
+  const workbookPath = getMasterWorkbookPath(client);
 
-  if (!fs.existsSync(filePath)) {
+  ensureDir(path.dirname(workbookPath));
+
+  if (!fs.existsSync(workbookPath)) {
     const workbook = createBlankMasterWorkbook();
-    writeWorkbook(workbook, filePath);
+    writeWorkbook(workbook, workbookPath);
   }
 
-  return filePath;
+  return workbookPath;
 }
 
 export function appendMasterRow(
@@ -73,12 +83,12 @@ export function appendMasterRow(
   sheetName: string,
   row: Record<string, any>
 ) {
-  const filePath = ensureMasterWorkbook(client);
+  const workbookPath = createMasterWorkbook(client);
 
   let workbook: XLSX.WorkBook;
 
   try {
-    workbook = readWorkbook(filePath);
+    workbook = readWorkbook(workbookPath);
   } catch {
     workbook = createBlankMasterWorkbook();
   }
@@ -90,9 +100,10 @@ export function appendMasterRow(
     XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
   }
 
-  const existingData = XLSX.utils.sheet_to_json<Record<string, any>>(worksheet, {
-    defval: "",
-  });
+  const existingData = XLSX.utils.sheet_to_json<Record<string, any>>(
+    worksheet,
+    { defval: "" }
+  );
 
   existingData.push({
     ...row,
@@ -100,7 +111,8 @@ export function appendMasterRow(
   });
 
   workbook.Sheets[sheetName] = XLSX.utils.json_to_sheet(existingData);
-  writeWorkbook(workbook, filePath);
 
-  return filePath;
+  writeWorkbook(workbook, workbookPath);
+
+  return workbookPath;
 }

@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import * as XLSX from "xlsx";
 import { backupFile } from "@/lib/system/backup";
+import { DATA_ROOT } from "@/lib/config/storage";
 import { logSystemEvent, logSystemError } from "@/lib/system/logger";
 
 function safeName(value: string) {
@@ -41,8 +42,7 @@ export function updateBalanceAfterDelivery({
 }) {
   try {
     const workbookPath = path.join(
-      process.cwd(),
-      "data",
+      DATA_ROOT,
       "clients",
       safeName(client),
       `${safeName(location)}.xlsx`
@@ -67,8 +67,7 @@ export function updateBalanceAfterDelivery({
         row.item_code &&
         normalize(row.item_code) === normalize(item_code);
 
-      const hasNameMatch =
-        normalize(row.item_name) === normalize(item_name);
+      const hasNameMatch = normalize(row.item_name) === normalize(item_name);
 
       const sameItem = hasCodeMatch || (!item_code && hasNameMatch);
 
