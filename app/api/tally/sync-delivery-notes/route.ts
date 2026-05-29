@@ -1,13 +1,13 @@
 import fs from "fs";
 import path from "path";
 
+import { DATA_ROOT } from "@/lib/config/storage";
 import { postToTally } from "@/lib/tally/tallyClient";
 import { parseTallyDeliveryNotesXml } from "@/lib/tally/tallyDeliveryNoteParser";
 import { recordDeliveryNote } from "@/lib/operations/deliveryRecorder";
 
 const STATE_FILE = path.join(
-  process.cwd(),
-  "data",
+  DATA_ROOT,
   "system-status",
   "tally-delivery-sync.json"
 );

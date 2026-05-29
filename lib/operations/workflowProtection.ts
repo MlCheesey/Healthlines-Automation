@@ -1,11 +1,8 @@
 import fs from "fs";
 import path from "path";
+import { DATA_ROOT } from "@/lib/config/storage";
 
-const DATA_DIR = path.join(
-  process.cwd(),
-  "data",
-  "workflow-protection"
-);
+const DATA_DIR = path.join(DATA_ROOT, "workflow-protection");
 
 const EMAIL_FILE = path.join(DATA_DIR, "processed-emails.json");
 const DN_FILE = path.join(DATA_DIR, "processed-dns.json");
