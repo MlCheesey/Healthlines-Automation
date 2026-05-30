@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import * as XLSX from "xlsx";
+import { DATA_ROOT } from "@/lib/config/storage";
 import { backupFile } from "@/lib/system/backup";
 import { logSystemEvent, logSystemError } from "@/lib/system/logger";
 
@@ -24,6 +25,15 @@ function readRows(workbook: XLSX.WorkBook, sheetName: string) {
   return XLSX.utils.sheet_to_json<any>(sheet, { defval: "" });
 }
 
+function locationWorkbookPath(client: string, location: string) {
+  return path.join(
+    DATA_ROOT,
+    "clients",
+    safeName(client),
+    `${safeName(location)}.xlsx`
+  );
+}
+
 export function syncMrnReceivedToDeliveryHistory({
   client,
   location,
@@ -38,13 +48,7 @@ export function syncMrnReceivedToDeliveryHistory({
   mrn_numbers?: string[];
 }) {
   try {
-    const workbookPath = path.join(
-      process.cwd(),
-      "data",
-      "clients",
-      safeName(client),
-      `${safeName(location)}.xlsx`
-    );
+    const workbookPath = locationWorkbookPath(client, location);
 
     if (!fs.existsSync(workbookPath)) {
       return {
@@ -56,14 +60,6 @@ export function syncMrnReceivedToDeliveryHistory({
 
     const workbook = XLSX.readFile(workbookPath);
     const rows = readRows(workbook, "Delivery_History");
-
-    if (rows.length === 0) {
-      return {
-        success: true,
-        updated_rows: 0,
-        message: "No Delivery_History rows found",
-      };
-    }
 
     const dnSet = new Set(dn_numbers.map(normalize).filter(Boolean));
     const poSet = new Set(po_numbers.map(normalize).filter(Boolean));
@@ -95,14 +91,18 @@ export function syncMrnReceivedToDeliveryHistory({
       backupFile(workbookPath);
       XLSX.writeFile(workbook, workbookPath);
 
-      logSystemEvent("mrn_synced_to_delivery_history", "MRN synced to delivery history", {
-        client,
-        location,
-        dn_numbers,
-        po_numbers,
-        mrn_numbers,
-        updated_rows: updatedRows,
-      });
+      logSystemEvent(
+        "mrn_synced_to_delivery_history",
+        "MRN synced to delivery history",
+        {
+          client,
+          location,
+          dn_numbers,
+          po_numbers,
+          mrn_numbers,
+          updated_rows: updatedRows,
+        }
+      );
     }
 
     return {
@@ -129,11 +129,55 @@ export function markMrnOverdueInDeliveryHistory({
   location: string;
   dn_number: string;
 }) {
-  return syncMrnReceivedToDeliveryHistory({
-    client,
-    location,
-    dn_numbers: [dn_number],
-    po_numbers: [],
-    mrn_numbers: [],
-  });
+  try {
+    const workbookPath = locationWorkbookPath(client, location);
+
+    if (!fs.existsSync(workbookPath)) {
+      return {
+        success: false,
+        updated_rows: 0,
+        message: "Location workbook not found",
+      };
+    }
+
+    const workbook = XLSX.readFile(workbookPath);
+    const rows = readRows(workbook, "Delivery_History");
+
+    let updatedRows = 0;
+
+    const updated = rows.map((row: any) => {
+      if (normalize(row.dn_number) !== normalize(dn_number)) return row;
+
+      if (String(row.mrn_status || "").toLowerCase().includes("received")) {
+        return row;
+      }
+
+      updatedRows += 1;
+
+      return {
+        ...row,
+        mrn_status: "Overdue",
+        mrn_overdue_at: new Date().toISOString(),
+      };
+    });
+
+    if (updatedRows > 0) {
+      workbook.Sheets["Delivery_History"] = XLSX.utils.json_to_sheet(updated);
+      backupFile(workbookPath);
+      XLSX.writeFile(workbook, workbookPath);
+    }
+
+    return {
+      success: true,
+      updated_rows: updatedRows,
+    };
+  } catch (error: any) {
+    logSystemError("markMrnOverdueInDeliveryHistory", error);
+
+    return {
+      success: false,
+      updated_rows: 0,
+      error: error?.message || String(error),
+    };
+  }
 }

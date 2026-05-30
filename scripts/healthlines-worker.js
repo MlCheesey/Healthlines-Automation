@@ -6,7 +6,10 @@ const path = require("path");
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 const WORKER_SECRET = process.env.WORKER_SECRET;
 
-const STATUS_DIR = path.join(process.cwd(), "data", "system-status");
+const DATA_ROOT =
+  process.env.DATA_ROOT || path.join(process.cwd(), "data");
+
+const STATUS_DIR = path.join(DATA_ROOT, "system-status");
 const STATUS_FILE = path.join(STATUS_DIR, "automation-worker.json");
 const INVOICE_SCHEDULE_FILE = path.join(
   STATUS_DIR,
@@ -15,13 +18,12 @@ const INVOICE_SCHEDULE_FILE = path.join(
 
 const GMAIL_INTERVAL_MS = 2 * 60 * 1000;
 const MRN_INTERVAL_MS = 6 * 60 * 60 * 1000;
+const TALLY_INTERVAL_MS = 60 * 60 * 1000;
 const INVOICE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const INVOICE_CYCLE_DAYS = 14;
 
 function ensureDir(dirPath) {
-  if (!fs.existsSync(dirPath)) {
-    fs.mkdirSync(dirPath, { recursive: true });
-  }
+  if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
 }
 
 function readJson(filePath, fallback = {}) {
@@ -40,7 +42,6 @@ function writeJson(filePath, data) {
 
 function writeStatus(update) {
   ensureDir(STATUS_DIR);
-
   const current = readJson(STATUS_FILE, {});
 
   writeJson(STATUS_FILE, {
@@ -54,9 +55,9 @@ function daysSince(dateString) {
   if (!dateString) return Infinity;
 
   const then = new Date(dateString).getTime();
-  const now = Date.now();
+  if (Number.isNaN(then)) return Infinity;
 
-  return (now - then) / (1000 * 60 * 60 * 24);
+  return (Date.now() - then) / (1000 * 60 * 60 * 24);
 }
 
 function invoiceCycleDue() {
@@ -74,16 +75,20 @@ function markInvoiceCycleSuccess(result) {
   });
 }
 
-async function callEndpoint(name, url) {
+async function callEndpoint(name, url, options = {}) {
   const startedAt = new Date().toISOString();
 
   try {
     console.log(`[${startedAt}] Running ${name}`);
 
     const res = await fetch(url, {
+      method: options.method || "GET",
       headers: {
+        "Content-Type": "application/json",
         "x-worker-secret": WORKER_SECRET || "",
+        ...(options.headers || {}),
       },
+      body: options.body ? JSON.stringify(options.body) : undefined,
     });
 
     const text = await res.text();
@@ -92,9 +97,7 @@ async function callEndpoint(name, url) {
     try {
       data = JSON.parse(text);
     } catch {
-      data = {
-        raw_response: text.slice(0, 500),
-      };
+      data = { raw_response: text.slice(0, 500) };
     }
 
     writeStatus({
@@ -106,11 +109,7 @@ async function callEndpoint(name, url) {
 
     console.log(`[${new Date().toISOString()}] Finished ${name}`, res.status);
 
-    return {
-      ok: res.ok,
-      status: res.status,
-      data,
-    };
+    return { ok: res.ok, status: res.status, data };
   } catch (error) {
     writeStatus({
       [`${name}_last_run_at`]: startedAt,
@@ -120,19 +119,23 @@ async function callEndpoint(name, url) {
 
     console.error(`[${new Date().toISOString()}] Failed ${name}`, error);
 
-    return {
-      ok: false,
-      error: error.message || String(error),
-    };
+    return { ok: false, error: error.message || String(error) };
   }
 }
 
 async function runGmailCycle() {
-  await callEndpoint("gmail_cycle", `${APP_URL}/api/gmail/process-new`);
+  return callEndpoint("gmail_cycle", `${APP_URL}/api/gmail/process-new`);
 }
 
 async function runMrnWatcher() {
-  await callEndpoint("mrn_watcher", `${APP_URL}/api/mrn-watcher`);
+  return callEndpoint("mrn_watcher", `${APP_URL}/api/mrn-watcher`);
+}
+
+async function runTallyDeliverySync() {
+  return callEndpoint(
+    "tally_delivery_sync",
+    `${APP_URL}/api/tally/sync-delivery-notes?limit=25&dryRun=false`
+  );
 }
 
 async function runInvoiceCycleIfDue() {
@@ -142,17 +145,21 @@ async function runInvoiceCycleIfDue() {
       invoice_cycle_skip_reason: "14-day cycle not due yet",
     });
 
-    return;
+    return { skipped: true };
   }
 
   const result = await callEndpoint(
     "invoice_cycle",
-    `${APP_URL}/api/invoice-package-worker`
+    `${APP_URL}/api/invoice-package-worker`,
+    {
+      method: "POST",
+      body: { client: "davita", source: "scheduled_worker" },
+    }
   );
 
-  if (result.ok) {
-    markInvoiceCycleSuccess(result.data);
-  }
+  if (result.ok) markInvoiceCycleSuccess(result.data);
+
+  return result;
 }
 
 async function start() {
@@ -164,11 +171,13 @@ async function start() {
   writeStatus({
     worker_started_at: new Date().toISOString(),
     app_url: APP_URL,
+    data_root: DATA_ROOT,
     status: "running",
   });
 
   console.log("HealthLines AI Worker started");
   console.log("APP_URL:", APP_URL);
+  console.log("DATA_ROOT:", DATA_ROOT);
 
   await runGmailCycle();
   await runMrnWatcher();
@@ -177,11 +186,8 @@ async function start() {
 
   setInterval(runGmailCycle, GMAIL_INTERVAL_MS);
   setInterval(runMrnWatcher, MRN_INTERVAL_MS);
+  setInterval(runTallyDeliverySync, TALLY_INTERVAL_MS);
   setInterval(runInvoiceCycleIfDue, INVOICE_CHECK_INTERVAL_MS);
-  setInterval(
-  runTallyDeliverySync,
-  60 * 60 * 1000
-);
 }
 
 start().catch((error) => {
@@ -194,10 +200,3 @@ start().catch((error) => {
   console.error(error);
   process.exit(1);
 });
-
-async function runTallyDeliverySync() {
-  return callEndpoint(
-    "tally_delivery_sync",
-    `${APP_URL}/api/tally/sync-delivery-notes`
-  );
-}
