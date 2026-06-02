@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { DATA_ROOT } from "@/lib/config/storage";
 
 export async function POST(
   req: Request
@@ -8,9 +9,7 @@ export async function POST(
     const body = await req.json();
 
     const persistPath =
-      path.join(
-        process.cwd(),
-        "data",
+      path.join(DATA_ROOT,
         "runtime-backup.json"
       );
 

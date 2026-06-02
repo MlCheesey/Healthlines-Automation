@@ -3,6 +3,7 @@ import path from "path";
 import * as XLSX from "xlsx";
 import { backupFile } from "@/lib/system/backup";
 import { logSystemEvent, logSystemError } from "@/lib/system/logger";
+import { DATA_ROOT } from "@/lib/config/storage";
 
 function safeName(value: string) {
   return String(value || "general")
@@ -31,9 +32,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const workbookPath = path.join(
-      process.cwd(),
-      "data",
+    const workbookPath = path.join(DATA_ROOT,
       "clients",
       safeName(client),
       `${safeName(location)}.xlsx`

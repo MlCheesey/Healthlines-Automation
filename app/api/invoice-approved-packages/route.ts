@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import * as XLSX from "xlsx";
 import { DEFAULT_CLIENT_ID } from "@/lib/config/clientProfiles";
+import { DATA_ROOT } from "@/lib/config/storage";
 
 function safeName(value: string) {
   return String(value || "general")
@@ -26,9 +27,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const client = safeName(url.searchParams.get("client") || DEFAULT_CLIENT_ID);
 
-  const masterPath = path.join(
-    process.cwd(),
-    "data",
+  const masterPath = path.join(DATA_ROOT,
     "clients",
     client,
     "master.xlsx"

@@ -1,17 +1,14 @@
 import fs from "fs";
 import path from "path";
 import * as XLSX from "xlsx";
+import { DATA_ROOT } from "@/lib/config/storage";
 
-const STATUS_FILE = path.join(
-  process.cwd(),
-  "data",
+const STATUS_FILE = path.join(DATA_ROOT,
   "system-status",
   "automation-worker.json"
 );
 
-const GMAIL_QUEUE_FILE = path.join(
-  process.cwd(),
-  "data",
+const GMAIL_QUEUE_FILE = path.join(DATA_ROOT,
   "gmail-queue.json"
 );
 
@@ -51,9 +48,7 @@ export async function GET() {
     []
   );
 
-  const clientsDir = path.join(
-    process.cwd(),
-    "data",
+  const clientsDir = path.join(DATA_ROOT,
     "clients"
   );
 

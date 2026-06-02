@@ -1,9 +1,8 @@
 import fs from "fs";
 import path from "path";
+import { DATA_ROOT } from "@/lib/config/storage";
 
-const FILE = path.join(
-  process.cwd(),
-  "data",
+const FILE = path.join(DATA_ROOT,
   "notifications.json"
 );
 

@@ -2,11 +2,10 @@ import fs from "fs";
 import path from "path";
 
 import { checkDeliverySchedules } from "@/lib/operations/deliveryScheduleWatcher";
+import { DATA_ROOT } from "@/lib/config/storage";
 
 export async function GET() {
-  const clientsDir = path.join(
-    process.cwd(),
-    "data",
+  const clientsDir = path.join(DATA_ROOT,
     "clients"
   );
 

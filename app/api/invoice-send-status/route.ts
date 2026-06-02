@@ -3,6 +3,7 @@ import path from "path";
 import * as XLSX from "xlsx";
 import { backupFile } from "@/lib/system/backup";
 import {
+import { DATA_ROOT } from "@/lib/config/storage";
   logSystemEvent,
   logSystemError,
 } from "@/lib/system/logger";
@@ -66,9 +67,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const clientPath = path.join(
-      process.cwd(),
-      "data",
+    const clientPath = path.join(DATA_ROOT,
       "clients",
       safeName(client)
     );

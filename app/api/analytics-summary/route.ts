@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { DATA_ROOT } from "@/lib/config/storage";
 
 function read(file: string) {
   if (!fs.existsSync(file))
@@ -17,27 +18,21 @@ function read(file: string) {
 export async function GET() {
   const notifications =
     read(
-      path.join(
-        process.cwd(),
-        "data",
+      path.join(DATA_ROOT,
         "notifications.json"
       )
     );
 
   const retries =
     read(
-      path.join(
-        process.cwd(),
-        "data",
+      path.join(DATA_ROOT,
         "retry-queue.json"
       )
     );
 
   const attachments =
     read(
-      path.join(
-        process.cwd(),
-        "data",
+      path.join(DATA_ROOT,
         "attachment-registry.json"
       )
     );

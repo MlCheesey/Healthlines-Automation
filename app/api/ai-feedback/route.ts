@@ -2,12 +2,11 @@ import fs from "fs";
 import path from "path";
 
 import {
+import { DATA_ROOT } from "@/lib/config/storage";
   addLearningRule,
 } from "@/lib/ai/learningMemory";
 
-const FILE = path.join(
-  process.cwd(),
-  "data",
+const FILE = path.join(DATA_ROOT,
   "ai-feedback.json"
 );
 

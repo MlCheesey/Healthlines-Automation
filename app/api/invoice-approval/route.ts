@@ -6,6 +6,7 @@ import * as XLSX from "xlsx";
 import { appendMasterRow } from "@/lib/operations/masterWorkbook";
 import { backupFile } from "@/lib/system/backup";
 import { logSystemEvent, logSystemError } from "@/lib/system/logger";
+import { DATA_ROOT } from "@/lib/config/storage";
 
 function safeName(value: string) {
   return (
@@ -36,9 +37,7 @@ function updateDeliveryHistoryStatuses({
   package_id: string;
   decision: "Approved" | "Rejected";
 }) {
-  const clientPath = path.join(
-    process.cwd(),
-    "data",
+  const clientPath = path.join(DATA_ROOT,
     "clients",
     safeName(client)
   );

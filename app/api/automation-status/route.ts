@@ -1,10 +1,9 @@
 import fs from "fs";
 import path from "path";
+import { DATA_ROOT } from "@/lib/config/storage";
 
 export async function GET() {
-  const statusPath = path.join(
-    process.cwd(),
-    "data",
+  const statusPath = path.join(DATA_ROOT,
     "system-status",
     "automation-worker.json"
   );
