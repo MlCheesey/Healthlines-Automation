@@ -1,3 +1,4 @@
+import { DATA_ROOT } from "@/lib/config/storage";
 import fs from "fs";
 import path from "path";
 import * as XLSX from "xlsx";
@@ -30,7 +31,7 @@ export async function GET(req: Request) {
   const url = new URL(req.url);
   const client = safeName(url.searchParams.get("client") || DEFAULT_CLIENT_ID);
 
-  const clientPath = path.join(process.cwd(), "data", "clients", client);
+  const clientPath = path.join(DATA_ROOT, "clients", client);
 
   if (!fs.existsSync(clientPath)) {
     return Response.json({

@@ -1,8 +1,9 @@
 import fs from "fs";
 import path from "path";
+import { DATA_ROOT } from "@/lib/config/storage";
 
 export async function GET() {
-  const backupDir = path.join(process.cwd(), "data", "backups");
+  const backupDir = path.join(DATA_ROOT, "backups");
 
   if (!fs.existsSync(backupDir)) {
     return Response.json({

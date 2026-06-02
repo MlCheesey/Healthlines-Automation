@@ -1,7 +1,8 @@
+import { DATA_ROOT } from "@/lib/config/storage";
 import fs from "fs";
 import path from "path";
 
-const filePath = path.join(process.cwd(), "data", "processed-emails.json");
+const filePath = path.join(DATA_ROOT, "processed-emails.json");
 
 function ensureFile() {
   const dir = path.dirname(filePath);

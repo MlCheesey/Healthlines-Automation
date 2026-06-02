@@ -65,7 +65,7 @@ export function recordPO(po: PORecord) {
     };
 
     appendRowToSheet(client, location, "Active_Requirements", row);
-    appendMasterRow(client, "PO_Control", row);
+    appendMasterRow(client, "Master_PO", row);
 
     appendMasterRow(client, "Pending_Actions", {
       client,

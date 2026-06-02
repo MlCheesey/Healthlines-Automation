@@ -1,8 +1,9 @@
+import { DATA_ROOT } from "@/lib/config/storage";
 import fs from "fs";
 import path from "path";
 
 function readLog(fileName: string) {
-  const filePath = path.join(process.cwd(), "data", "system-logs", fileName);
+  const filePath = path.join(DATA_ROOT, "system-logs", fileName);
 
   if (!fs.existsSync(filePath)) return [];
 

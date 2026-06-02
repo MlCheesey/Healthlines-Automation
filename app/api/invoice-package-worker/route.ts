@@ -10,10 +10,24 @@ function readRows(workbook: XLSX.WorkBook, sheetName: string) {
   return XLSX.utils.sheet_to_json<any>(sheet, { defval: "" });
 }
 
+function isAlreadyPackaged(row: any) {
+  const status = String(row.invoice_status || "").toLowerCase();
+
+  if (row.invoice_package_id || row.invoice_number) return true;
+  if (status.includes("packaged")) return true;
+  if (status.includes("approved")) return true;
+  if (status.includes("sent")) return true;
+  if (status.includes("paid")) return true;
+
+  return false;
+}
+
 function markRowsPackaged(cycle: any) {
   const updatedWorkbooks = new Set<string>();
 
   for (const group of cycle.invoice_groups || []) {
+    if (group.has_missing_rate) continue;
+
     const workbookPath = group.source_workbook;
 
     if (!workbookPath || !fs.existsSync(workbookPath)) continue;
@@ -27,19 +41,20 @@ function markRowsPackaged(cycle: any) {
       const sameDn =
         String(row.dn_number || "") === String(group.dn_number || "");
 
-      const alreadyPackaged =
-        row.invoice_package_id || row.invoice_number || row.invoice_status;
+      const samePo =
+        !group.po_number ||
+        String(row.po_number || "") === String(group.po_number || "");
 
-      if (!sameDn || alreadyPackaged) return row;
+      if (!sameDn || !samePo || isAlreadyPackaged(row)) return row;
 
       changed = true;
 
       return {
         ...row,
-        invoice_status: "Draft Packaged",
+        invoice_status: "Packaged - Pending Approval",
         invoice_package_id: group.invoice_package_id,
         invoice_number: group.invoice_number,
-        invoice_generated_at: new Date().toISOString(),
+        invoice_packaged_at: new Date().toISOString(),
       };
     });
 
@@ -75,6 +90,9 @@ async function runInvoicePackageWorker(client = "davita") {
       qty: item.qty,
       unit: item.unit,
       rate: item.rate,
+      amount:
+        Number(item.qty || 0) *
+        (Number.isNaN(Number(item.rate)) ? 0 : Number(item.rate || 0)),
       batch: item.batch,
       expiry: item.expiry,
       taxable_amount: item.taxable_amount,
@@ -83,6 +101,9 @@ async function runInvoicePackageWorker(client = "davita") {
       taxability: item.taxability,
       tax_reason: item.tax_reason,
       needs_vat_review: item.needs_vat_review,
+      status: group.has_missing_rate
+        ? "Blocked - Missing Rate"
+        : "Packaged - Pending Approval",
     }))
   );
 

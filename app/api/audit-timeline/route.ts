@@ -1,10 +1,11 @@
 import fs from "fs";
 import path from "path";
+import { DATA_ROOT } from "@/lib/config/storage";
 
 const POSSIBLE_FILES = [
-  path.join(process.cwd(), "data", "system-log.json"),
-  path.join(process.cwd(), "data", "system-events.json"),
-  path.join(process.cwd(), "data", "logs", "system-log.json"),
+  path.join(DATA_ROOT, "system-log.json"),
+  path.join(DATA_ROOT, "system-events.json"),
+  path.join(DATA_ROOT, "logs", "system-log.json"),
 ];
 
 function readJson(filePath: string) {

@@ -1,4 +1,5 @@
 import { withRetry } from "@/lib/system/retry";
+import { DATA_ROOT } from "@/lib/config/storage";
 import fs from "fs";
 import path from "path";
 import puppeteer from "puppeteer";
@@ -100,7 +101,7 @@ export async function generateInvoicePdf(data: InvoiceData) {
       throw new Error(`Missing unit rate for item: ${missingRate.item_name}`);
     }
 
-    const invoicesDir = path.join(process.cwd(), "data", "invoices");
+    const invoicesDir = path.join(DATA_ROOT, "invoices");
     ensureDir(invoicesDir);
 
     const filePath = path.join(invoicesDir, `${data.invoice_number}.pdf`);

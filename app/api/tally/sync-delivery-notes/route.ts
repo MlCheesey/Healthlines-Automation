@@ -30,6 +30,55 @@ function writeState(data: any) {
   fs.writeFileSync(STATE_FILE, JSON.stringify(data, null, 2));
 }
 
+function safeLocationName(value: string) {
+  return (
+    String(value || "general")
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "general"
+  );
+}
+
+function inferTallyLocation(dn: any) {
+  const text = [
+    dn.location,
+    dn.delivery_location,
+    dn.destination,
+    dn.remarks,
+    dn.party_name,
+    dn.po_number,
+    dn.dn_number,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  const knownLocations: Record<string, string[]> = {
+    kfh_al_ahsa: ["kfh", "al ahsa", "al-ahsa", "king faisal"],
+    sgh_makkah: ["sgh", "makkah", "makka"],
+    riyadh: ["riyadh"],
+    jeddah: ["jeddah"],
+    makkah: ["makkah", "makka"],
+    madinah: ["madinah", "medina"],
+    dammam: ["dammam"],
+    khobar: ["khobar"],
+  };
+
+  for (const [location, keywords] of Object.entries(knownLocations)) {
+    if (keywords.some((keyword) => text.includes(keyword))) {
+      return location;
+    }
+  }
+
+  return safeLocationName(
+    dn.location ||
+      dn.delivery_location ||
+      dn.destination ||
+      "general"
+  );
+}
+
 function isValidTallyDate(value: any) {
   return typeof value === "string" && /^\d{8}$/.test(value);
 }
@@ -160,7 +209,7 @@ export async function GET(req: Request) {
 
       const result = recordDeliveryNote({
         client: "davita",
-        location: "general",
+        location: inferTallyLocation(dn),
         po_number: dn.po_number || "UNKNOWN_PO",
         dn_number: dn.dn_number,
         dn_date: dn.dn_date || new Date().toISOString().slice(0, 10),

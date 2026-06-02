@@ -1,3 +1,4 @@
+import { DATA_ROOT } from "@/lib/config/storage";
 import fs from "fs";
 import path from "path";
 import * as XLSX from "xlsx";
@@ -15,7 +16,7 @@ function readSheet(filePath: string, sheetName: string) {
 }
 
 export async function GET() {
-  const clientsDir = path.join(process.cwd(), "data", "clients");
+  const clientsDir = path.join(DATA_ROOT, "clients");
   const rows: any[] = [];
 
   if (fs.existsSync(clientsDir)) {

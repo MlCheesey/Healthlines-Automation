@@ -1,3 +1,4 @@
+import { DATA_ROOT } from "@/lib/config/storage";
 import fs from "fs";
 import path from "path";
 import * as XLSX from "xlsx";
@@ -23,8 +24,7 @@ function readRows(workbook: XLSX.WorkBook, sheetName: string) {
 
 function getWorkbookPath(client: string, location: string) {
   return path.join(
-    process.cwd(),
-    "data",
+    DATA_ROOT,
     "clients",
     safeName(client),
     `${safeName(location)}.xlsx`
