@@ -1,23 +1,15 @@
 import fs from "fs";
 import path from "path";
-
-import {
 import { DATA_ROOT } from "@/lib/config/storage";
-  addLearningRule,
-} from "@/lib/ai/learningMemory";
+import { addLearningRule } from "@/lib/ai/learningMemory";
 
-const FILE = path.join(DATA_ROOT,
-  "ai-feedback.json"
-);
+const FILE = path.join(DATA_ROOT, "ai-feedback.json");
 
 function read() {
-  if (!fs.existsSync(FILE))
-    return [];
+  if (!fs.existsSync(FILE)) return [];
 
   try {
-    return JSON.parse(
-      fs.readFileSync(FILE, "utf8")
-    );
+    return JSON.parse(fs.readFileSync(FILE, "utf8"));
   } catch {
     return [];
   }
@@ -28,10 +20,7 @@ function write(rows: any[]) {
     recursive: true,
   });
 
-  fs.writeFileSync(
-    FILE,
-    JSON.stringify(rows, null, 2)
-  );
+  fs.writeFileSync(FILE, JSON.stringify(rows, null, 2));
 }
 
 export async function GET() {
@@ -41,47 +30,29 @@ export async function GET() {
   });
 }
 
-export async function POST(
-  req: Request
-) {
+export async function POST(req: Request) {
   const body = await req.json();
 
   const rows = read();
 
   const record = {
     id: `FB-${Date.now()}`,
-    created_at:
-      new Date().toISOString(),
-
-    category:
-      body.category || "general",
-
-    message:
-      body.message || "",
-
-    correction:
-      body.correction || "",
-
+    created_at: new Date().toISOString(),
+    category: body.category || "general",
+    message: body.message || "",
+    correction: body.correction || "",
     status: "Open",
   };
 
   rows.push(record);
-
   write(rows);
 
-  const learningRule =
-    addLearningRule({
-      category:
-        body.category || "general",
-
-      trigger:
-        body.message || "",
-
-      correction:
-        body.correction || "",
-
-      rule: `When similar workflow appears: ${body.correction}`,
-    });
+  const learningRule = addLearningRule({
+    category: body.category || "general",
+    trigger: body.message || "",
+    correction: body.correction || "",
+    rule: `When similar workflow appears: ${body.correction}`,
+  });
 
   return Response.json({
     success: true,
