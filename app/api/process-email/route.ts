@@ -7,6 +7,7 @@ import {
 } from "@/lib/operations/workflowProtection";
 import { syncMrnReceivedToDeliveryHistory } from "@/lib/operations/mrnSync";
 import { DEFAULT_CLIENT_ID } from "@/lib/config/clientProfiles";
+import { auditEmail } from "@/lib/operations/emailAudit";
 
 function safeName(value: string) {
   return (
@@ -29,11 +30,143 @@ function firstDeliveryDate(analysis: any) {
 }
 
 function normalizeItemsWithDeliveryDate(items: any[], deliveryDate: string) {
-  return (items || []).map((item: any) => ({
-    ...item,
-    quantity: Number(item.quantity || item.qty || item.required_qty || 0),
-    delivery_date: item.delivery_date || deliveryDate || "",
-  }));
+  return (items || [])
+    .map((item: any) => ({
+      ...item,
+      item_name: item.item_name || item.name || item.description || "",
+      quantity: Number(item.quantity || item.qty || item.required_qty || 0),
+      delivery_date: item.delivery_date || deliveryDate || "",
+    }))
+    .filter((item: any) => item.item_name || item.quantity);
+}
+
+function allItemsFromAnalysis(analysis: any, deliveryDate: string) {
+  const directItems = normalizeItemsWithDeliveryDate(
+    analysis.items || [],
+    deliveryDate
+  );
+
+  const locationItems = Array.isArray(analysis.locations)
+    ? analysis.locations.flatMap((locationBlock: any) =>
+        normalizeItemsWithDeliveryDate(
+          locationBlock.items || [],
+          locationBlock.delivery_date || deliveryDate
+        )
+      )
+    : [];
+
+  return [...directItems, ...locationItems];
+}
+
+function createHumanReviewAction({
+  client,
+  location,
+  analysis,
+  reason,
+}: {
+  client: string;
+  location: string;
+  analysis: any;
+  reason: string;
+}) {
+  const deliveryDate = firstDeliveryDate(analysis);
+
+  const row = {
+    client,
+    location,
+    source_email_id: analysis.source_email_id || "",
+    subject: analysis.subject || "",
+    from: analysis.source_email_from || analysis.from || "",
+    email_type: analysis.email_type || "Other",
+    po_numbers: analysis.po_numbers?.join(", ") || analysis.po_number || "",
+    dn_numbers: analysis.dn_numbers?.join(", ") || "",
+    mrn_numbers: analysis.mrn_numbers?.join(", ") || "",
+    delivery_date: deliveryDate,
+    pending_action:
+      analysis.recommended_action ||
+      "Review email manually and update workflow",
+    action_type: "Email Needs Human Review",
+    reason,
+    status: "Open",
+    human_required: true,
+    notes: analysis.notes || "",
+  };
+
+  appendRowToSheet(client, location, "Pending_Actions", row);
+  appendMasterRow(client, "Pending_Actions", row);
+
+  return row;
+}
+
+function logAI({
+  client,
+  location,
+  analysis,
+  extra,
+}: {
+  client: string;
+  location: string;
+  analysis: any;
+  extra?: Record<string, any>;
+}) {
+  const deliveryDate = firstDeliveryDate(analysis);
+
+  appendRowToSheet(client, location, "AI_Log", {
+    client,
+    location,
+    source_email_id: analysis.source_email_id || "",
+    subject: analysis.subject || "",
+    from: analysis.source_email_from || analysis.from || "",
+    email_type: analysis.email_type || "Other",
+    confidence: analysis.confidence,
+    urgency: analysis.urgency,
+    recommended_action: analysis.recommended_action,
+    human_required: analysis.human_required,
+    delivery_date: deliveryDate,
+    notes: analysis.notes || "",
+    ...extra,
+  });
+}
+
+function audit({
+  client,
+  location,
+  analysis,
+  status,
+  reason,
+  workflow,
+  rowsAdded,
+  itemsFound,
+}: {
+  client: string;
+  location: string;
+  analysis: any;
+  status: "Processed" | "Ignored" | "Needs Human Review" | "Error";
+  reason?: string;
+  workflow?: string;
+  rowsAdded?: number;
+  itemsFound?: number;
+}) {
+  return auditEmail({
+    client,
+    location,
+    source_email_id: analysis.source_email_id || "",
+    subject: analysis.subject || "",
+    from: analysis.source_email_from || analysis.from || "",
+    email_type: analysis.email_type || "Other",
+    status,
+    reason,
+    workflow,
+    confidence: analysis.confidence,
+    delivery_date: firstDeliveryDate(analysis),
+    po_numbers: analysis.po_numbers || analysis.po_number || "",
+    dn_numbers: analysis.dn_numbers || "",
+    mrn_numbers: analysis.mrn_numbers || "",
+    items_found: itemsFound,
+    rows_added: rowsAdded,
+    recommended_action: analysis.recommended_action || "",
+    notes: analysis.notes || "",
+  });
 }
 
 export async function POST(req: Request) {
@@ -54,26 +187,54 @@ export async function POST(req: Request) {
     const client = safeName(analysis.client || DEFAULT_CLIENT_ID);
     const emailType = analysis.email_type || "Other";
     const deliveryDate = firstDeliveryDate(analysis);
-
-    const baseLog = {
-      client,
-      email_type: emailType,
-      confidence: analysis.confidence,
-      urgency: analysis.urgency,
-      recommended_action: analysis.recommended_action,
-      human_required: analysis.human_required,
-      delivery_date: deliveryDate,
-      notes: analysis.notes || "",
-    };
+    const defaultLocation = safeName(analysis.location || "general");
 
     if (emailType === "Quarterly PO" && Array.isArray(analysis.locations)) {
       const results = [];
+      let totalRowsAdded = 0;
+      let totalItemsFound = 0;
 
       for (const locationBlock of analysis.locations) {
         const location = safeName(locationBlock.location || "general");
-
         const locationDeliveryDate =
           locationBlock.delivery_date || deliveryDate || "";
+
+        const items = normalizeItemsWithDeliveryDate(
+          locationBlock.items || [],
+          locationDeliveryDate
+        );
+
+        totalItemsFound += items.length;
+
+        if (items.length === 0) {
+          createHumanReviewAction({
+            client,
+            location,
+            analysis,
+            reason:
+              "Quarterly PO detected, but no item rows were extracted for this location.",
+          });
+
+          logAI({
+            client,
+            location,
+            analysis,
+            extra: {
+              workflow: "Quarterly PO",
+              status: "Needs Human Review",
+              reason: "No items extracted",
+            },
+          });
+
+          results.push({
+            success: false,
+            location,
+            rows_added: 0,
+            reason: "No items extracted",
+          });
+
+          continue;
+        }
 
         const result = recordPO({
           client,
@@ -81,22 +242,51 @@ export async function POST(req: Request) {
             analysis.po_numbers?.[0] || analysis.po_number || "UNKNOWN_PO",
           po_type: "Quarterly PO",
           location,
-          items: normalizeItemsWithDeliveryDate(
-            locationBlock.items || [],
-            locationDeliveryDate
-          ),
+          items,
           delivery_date: locationDeliveryDate,
           source_email_id: analysis.source_email_id || "",
           notes: analysis.notes || "Quarterly PO recorded from AI analysis",
         });
 
-        appendRowToSheet(client, location, "AI_Log", {
-          ...baseLog,
+        totalRowsAdded += result.rows_added || 0;
+
+        logAI({
+          client,
           location,
-          delivery_date: locationDeliveryDate,
+          analysis,
+          extra: {
+            workflow: "Quarterly PO",
+            status: "Processed",
+            rows_added: result.rows_added,
+          },
         });
 
         results.push(result);
+      }
+
+      if (totalRowsAdded === 0) {
+        audit({
+          client,
+          location: defaultLocation,
+          analysis,
+          status: "Needs Human Review",
+          reason:
+            "Quarterly PO was detected but no Excel requirement rows were created.",
+          workflow: "Quarterly PO",
+          rowsAdded: totalRowsAdded,
+          itemsFound: totalItemsFound,
+        });
+      } else {
+        audit({
+          client,
+          location: defaultLocation,
+          analysis,
+          status: "Processed",
+          reason: "Quarterly PO recorded into Excel.",
+          workflow: "Quarterly PO",
+          rowsAdded: totalRowsAdded,
+          itemsFound: totalItemsFound,
+        });
       }
 
       finishEmail(analysis.source_email_id);
@@ -106,74 +296,106 @@ export async function POST(req: Request) {
         workflow: "Quarterly PO",
         client,
         locations_processed: results.length,
+        rows_added: totalRowsAdded,
+        items_found: totalItemsFound,
         delivery_date: deliveryDate,
         results,
       });
     }
 
-    if (emailType === "Quarterly PO") {
-      const location = safeName(analysis.location || "general");
+    if (emailType === "Quarterly PO" || emailType === "Additional PO") {
+      const location = defaultLocation;
+      const items = normalizeItemsWithDeliveryDate(
+        analysis.items || [],
+        deliveryDate
+      );
+
+      if (items.length === 0) {
+        createHumanReviewAction({
+          client,
+          location,
+          analysis,
+          reason: `${emailType} detected, but no item rows were extracted.`,
+        });
+
+        logAI({
+          client,
+          location,
+          analysis,
+          extra: {
+            workflow: emailType,
+            status: "Needs Human Review",
+            reason: "No items extracted",
+          },
+        });
+
+        audit({
+          client,
+          location,
+          analysis,
+          status: "Needs Human Review",
+          reason: `${emailType} detected but no item rows were extracted, so no PO rows were created.`,
+          workflow: emailType,
+          rowsAdded: 0,
+          itemsFound: 0,
+        });
+
+        finishEmail(analysis.source_email_id);
+
+        return Response.json({
+          success: true,
+          workflow: emailType,
+          client,
+          location,
+          delivery_date: deliveryDate,
+          result: {
+            success: false,
+            rows_added: 0,
+            reason: "No items extracted",
+          },
+          human_review_created: true,
+        });
+      }
 
       const result = recordPO({
         client,
         po_number:
           analysis.po_numbers?.[0] || analysis.po_number || "UNKNOWN_PO",
-        po_type: "Quarterly PO",
+        po_type: emailType,
         location,
-        items: normalizeItemsWithDeliveryDate(
-          analysis.items || [],
-          deliveryDate
-        ),
+        items,
         delivery_date: deliveryDate,
         source_email_id: analysis.source_email_id || "",
-        notes: analysis.notes || "Quarterly PO recorded from AI analysis",
+        notes: analysis.notes || `${emailType} recorded from AI analysis`,
       });
 
-      appendRowToSheet(client, location, "AI_Log", {
-        ...baseLog,
+      logAI({
+        client,
         location,
+        analysis,
+        extra: {
+          workflow: emailType,
+          status: "Processed",
+          rows_added: result.rows_added,
+        },
+      });
+
+      audit({
+        client,
+        location,
+        analysis,
+        status: "Processed",
+        reason: `${emailType} recorded into Excel.`,
+        workflow: emailType,
+        rowsAdded: result.rows_added,
+        itemsFound: items.length,
       });
 
       finishEmail(analysis.source_email_id);
 
       return Response.json({
         success: true,
-        workflow: "Quarterly PO fallback",
-        client,
-        location,
-        delivery_date: deliveryDate,
-        result,
-      });
-    }
-
-    if (emailType === "Additional PO") {
-      const location = safeName(analysis.location || "general");
-
-      const result = recordPO({
-        client,
-        po_number:
-          analysis.po_numbers?.[0] || analysis.po_number || "UNKNOWN_PO",
-        po_type: "Additional PO",
-        location,
-        items: normalizeItemsWithDeliveryDate(
-          analysis.items || [],
-          deliveryDate
-        ),
-        delivery_date: deliveryDate,
-        source_email_id: analysis.source_email_id || "",
-        notes: analysis.notes || "Additional PO recorded from AI analysis",
-      });
-
-      appendRowToSheet(client, location, "AI_Log", {
-        ...baseLog,
-        location,
-      });
-
-      finishEmail(analysis.source_email_id);
-
-      return Response.json({
-        success: true,
-        workflow: "Additional PO",
+        workflow: emailType,
         client,
         location,
         delivery_date: deliveryDate,
@@ -187,16 +409,24 @@ export async function POST(req: Request) {
       emailType === "Delivery Reminder" ||
       emailType === "Partial Stock Reminder"
     ) {
-      const location = safeName(analysis.location || "general");
+      const location = defaultLocation;
+      const items = allItemsFromAnalysis(analysis, deliveryDate);
 
       appendRowToSheet(client, location, "Active_Delivery_Tasks", {
         client,
         location,
+        source_email_id: analysis.source_email_id || "",
+        subject: analysis.subject || "",
+        from: analysis.source_email_from || analysis.from || "",
         email_type: emailType,
         po_numbers: analysis.po_numbers?.join(", ") || "",
         delivery_dates: analysis.delivery_dates?.join(", ") || "",
         delivery_date: deliveryDate,
-        action: analysis.recommended_action || "",
+        items_found: items.length,
+        items_summary: items
+          .map((item: any) => `${item.item_name || ""} ${item.quantity || ""}`)
+          .join(" | "),
+        action: analysis.recommended_action || "Review delivery follow-up",
         status: "Pending Human Review",
         human_required: true,
         notes: analysis.notes || "",
@@ -205,18 +435,56 @@ export async function POST(req: Request) {
       appendMasterRow(client, "Pending_Actions", {
         client,
         location,
+        source_email_id: analysis.source_email_id || "",
+        subject: analysis.subject || "",
+        from: analysis.source_email_from || analysis.from || "",
         email_type: emailType,
         po_numbers: analysis.po_numbers?.join(", ") || "",
         delivery_date: deliveryDate,
-        pending_action: analysis.recommended_action || "",
+        items_found: items.length,
+        pending_action:
+          analysis.recommended_action || "Review delivery follow-up",
+        action_type: "Delivery Follow-up",
         status: "Open",
         human_required: true,
-        notes: analysis.notes || "",
+        notes:
+          items.length > 0
+            ? analysis.notes || ""
+            : `${analysis.notes || ""} No item rows were extracted from the email body/attachment.`,
       });
 
-      appendRowToSheet(client, location, "AI_Log", {
-        ...baseLog,
+      if (items.length === 0) {
+        createHumanReviewAction({
+          client,
+          location,
+          analysis,
+          reason:
+            "Delivery follow-up detected, but item table/details were not extracted.",
+        });
+      }
+
+      logAI({
+        client,
         location,
+        analysis,
+        extra: {
+          workflow: emailType,
+          status: items.length ? "Processed" : "Needs Human Review",
+          items_found: items.length,
+        },
+      });
+
+      audit({
+        client,
+        location,
+        analysis,
+        status: items.length ? "Processed" : "Needs Human Review",
+        reason: items.length
+          ? "Delivery follow-up logged into Excel."
+          : "Delivery follow-up logged, but item details were not extracted.",
+        workflow: emailType,
+        rowsAdded: 1,
+        itemsFound: items.length,
       });
 
       finishEmail(analysis.source_email_id);
@@ -227,15 +495,20 @@ export async function POST(req: Request) {
         client,
         location,
         delivery_date: deliveryDate,
+        items_found: items.length,
+        human_review_created: items.length === 0,
       });
     }
 
     if (emailType === "MRN") {
-      const location = safeName(analysis.location || "general");
+      const location = defaultLocation;
 
       appendRowToSheet(client, location, "MRN_Log", {
         client,
         location,
+        source_email_id: analysis.source_email_id || "",
+        subject: analysis.subject || "",
+        from: analysis.source_email_from || analysis.from || "",
         mrn_numbers: analysis.mrn_numbers?.join(", ") || "",
         dn_numbers: analysis.dn_numbers?.join(", ") || "",
         po_numbers: analysis.po_numbers?.join(", ") || "",
@@ -246,6 +519,9 @@ export async function POST(req: Request) {
       appendMasterRow(client, "MRN_Tracker", {
         client,
         location,
+        source_email_id: analysis.source_email_id || "",
+        subject: analysis.subject || "",
+        from: analysis.source_email_from || analysis.from || "",
         mrn_numbers: analysis.mrn_numbers?.join(", ") || "",
         dn_numbers: analysis.dn_numbers?.join(", ") || "",
         po_numbers: analysis.po_numbers?.join(", ") || "",
@@ -261,9 +537,25 @@ export async function POST(req: Request) {
         mrn_numbers: analysis.mrn_numbers || [],
       });
 
-      appendRowToSheet(client, location, "AI_Log", {
-        ...baseLog,
+      logAI({
+        client,
         location,
+        analysis,
+        extra: {
+          workflow: "MRN",
+          status: "Processed",
+        },
+      });
+
+      audit({
+        client,
+        location,
+        analysis,
+        status: "Processed",
+        reason: "MRN email logged and sync attempted.",
+        workflow: "MRN",
+        rowsAdded: 1,
+        itemsFound: 0,
       });
 
       finishEmail(analysis.source_email_id);
@@ -278,11 +570,14 @@ export async function POST(req: Request) {
     }
 
     if (emailType === "Query / Discrepancy" || emailType === "Invoice Issue") {
-      const location = safeName(analysis.location || "general");
+      const location = defaultLocation;
 
       appendRowToSheet(client, location, "Issues", {
         client,
         location,
+        source_email_id: analysis.source_email_id || "",
+        subject: analysis.subject || "",
+        from: analysis.source_email_from || analysis.from || "",
         issue_type: emailType,
         urgency: analysis.urgency,
         status: "Open",
@@ -293,16 +588,36 @@ export async function POST(req: Request) {
       appendMasterRow(client, "Pending_Actions", {
         client,
         location,
+        source_email_id: analysis.source_email_id || "",
+        subject: analysis.subject || "",
+        from: analysis.source_email_from || analysis.from || "",
         issue_type: emailType,
         pending_action: analysis.recommended_action || "Review issue",
+        action_type: "Issue Review",
         status: "Open",
         human_required: true,
         notes: analysis.notes || "",
       });
 
-      appendRowToSheet(client, location, "AI_Log", {
-        ...baseLog,
+      logAI({
+        client,
         location,
+        analysis,
+        extra: {
+          workflow: emailType,
+          status: "Needs Human Review",
+        },
+      });
+
+      audit({
+        client,
+        location,
+        analysis,
+        status: "Needs Human Review",
+        reason: `${emailType} logged for human review.`,
+        workflow: emailType,
+        rowsAdded: 1,
+        itemsFound: 0,
       });
 
       finishEmail(analysis.source_email_id);
@@ -315,18 +630,35 @@ export async function POST(req: Request) {
       });
     }
 
-    const location = safeName(analysis.location || "general");
+    const location = defaultLocation;
 
-    appendRowToSheet(client, location, "AI_Log", {
-      ...baseLog,
+    createHumanReviewAction({
+      client,
       location,
-      fallback: true,
+      analysis,
+      reason: "Email type was Other or not actionable by automation.",
     });
 
-    appendMasterRow(client, "AI_Log", {
-      ...baseLog,
+    logAI({
+      client,
       location,
-      fallback: true,
+      analysis,
+      extra: {
+        fallback: true,
+        workflow: "Logged only",
+        status: "Needs Human Review",
+      },
+    });
+
+    audit({
+      client,
+      location,
+      analysis,
+      status: "Needs Human Review",
+      reason: "Email was logged only and requires human review.",
+      workflow: "Logged only",
+      rowsAdded: 1,
+      itemsFound: allItemsFromAnalysis(analysis, deliveryDate).length,
     });
 
     finishEmail(analysis.source_email_id);
@@ -337,8 +669,32 @@ export async function POST(req: Request) {
       client,
       location,
       emailType,
+      human_review_created: true,
     });
   } catch (error: any) {
+    try {
+      const fallbackAnalysis = await req
+        .clone()
+        .json()
+        .catch(() => ({}));
+
+      const client = safeName(fallbackAnalysis.client || DEFAULT_CLIENT_ID);
+      const location = safeName(fallbackAnalysis.location || "general");
+
+      auditEmail({
+        client,
+        location,
+        source_email_id: fallbackAnalysis.source_email_id || "",
+        subject: fallbackAnalysis.subject || "",
+        from:
+          fallbackAnalysis.source_email_from || fallbackAnalysis.from || "",
+        email_type: fallbackAnalysis.email_type || "",
+        status: "Error",
+        reason: error.message || "Process email failed",
+        notes: fallbackAnalysis.notes || "",
+      });
+    } catch {}
+
     return Response.json(
       { error: error.message || "Process email failed" },
       { status: 500 }
