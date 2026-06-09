@@ -133,14 +133,13 @@ function extractExplicitVatRate(entry: any) {
   if (direct > 0 && direct <= 25) return direct;
 
   const nestedRates = collectNestedNumbersByKey(entry, rateFields);
-
   const valid = nestedRates.find((n) => n > 0 && n <= 25);
 
   return valid || 0;
 }
 
 function extractLineVatAmount(entry: any) {
-  const directVatNumbers = collectNestedNumbersByKey(entry, [
+  const explicitVatAmount = collectNestedNumbersByKey(entry, [
     "VATAMOUNT",
     "TAXAMOUNT",
     "GSTAMOUNT",
@@ -148,10 +147,8 @@ function extractLineVatAmount(entry: any) {
     "OUTPUTTAXAMOUNT",
   ]);
 
-  const saneDirectVat = directVatNumbers.filter((n) => n > 0);
-
-  if (saneDirectVat.length > 0) {
-    return saneDirectVat.reduce((sum, n) => sum + n, 0);
+  if (explicitVatAmount.length > 0) {
+    return explicitVatAmount.reduce((sum, n) => sum + n, 0);
   }
 
   const allocations = collectNestedObjects(entry, [
@@ -200,7 +197,7 @@ function calculateVatPercent({
   const rounded = Number(percent.toFixed(2));
 
   // Safety guard: never accept impossible VAT rates like 100%.
-  if (rounded < 0 || rounded > 25) {
+  if (rounded <= 0 || rounded > 25) {
     return 0;
   }
 
@@ -252,24 +249,28 @@ export function parseTallyDeliveryNotesXml(xml: string) {
       ]);
 
       const rate = cleanNumber(pick(entry, ["RATE", "BASICRATE"])) || null;
-
       const deliveredQty = cleanNumber(qtyRaw);
 
       const taxableAmount =
-        cleanNumber(pick(entry, ["AMOUNT", "TAXABLEAMOUNT", "BASICAMOUNT"])) ||
+        cleanNumber(pick(entry, ["TAXABLEAMOUNT", "BASICAMOUNT", "AMOUNT"])) ||
         Number(((rate || 0) * deliveredQty).toFixed(2));
 
       const explicitRate = extractExplicitVatRate(entry);
-      const vatAmount = extractLineVatAmount(entry);
+      const rawVatAmount = extractLineVatAmount(entry);
 
       const vatPercent = calculateVatPercent({
         explicitRate,
-        vatAmount,
+        vatAmount: rawVatAmount,
         taxableAmount,
       });
 
+      const vatAmount =
+        vatPercent > 0
+          ? Number(((taxableAmount * vatPercent) / 100).toFixed(2))
+          : 0;
+
       const needsVatReview =
-        vatAmount > 0 && taxableAmount > 0 && vatPercent === 0;
+        rawVatAmount > 0 && taxableAmount > 0 && vatPercent === 0;
 
       return {
         item_code: extractText(stockName),
@@ -280,6 +281,7 @@ export function parseTallyDeliveryNotesXml(xml: string) {
         taxable_amount: taxableAmount,
         vat_amount: vatAmount,
         vat_percent: vatPercent,
+        raw_tally_vat_amount: rawVatAmount,
         taxability:
           vatPercent > 0
             ? "Taxable from Tally"
@@ -290,10 +292,10 @@ export function parseTallyDeliveryNotesXml(xml: string) {
           vatPercent > 0
             ? explicitRate > 0
               ? "VAT rate extracted directly from Tally"
-              : "VAT rate calculated from Tally VAT amount and taxable amount"
+              : "VAT rate calculated from sane Tally VAT amount"
             : needsVatReview
-              ? "Tally VAT amount exists but calculated VAT rate was invalid"
-              : "Tally delivery note did not show VAT for this line",
+              ? "Tally VAT value was present but implied impossible VAT rate, so it was blocked"
+              : "Tally delivery note did not show valid VAT for this line",
         needs_vat_review: needsVatReview,
       };
     });
