@@ -12,6 +12,13 @@ function safeName(value: string) {
   );
 }
 
+export type EmailAuditStatus =
+  | "Processed"
+  | "Ignored"
+  | "Duplicate"
+  | "Needs Human Review"
+  | "Error";
+
 export function auditEmail(event: {
   client?: string;
   location?: string;
@@ -19,7 +26,7 @@ export function auditEmail(event: {
   subject?: string;
   from?: string;
   email_type?: string;
-  status: "Processed" | "Ignored" | "Needs Human Review" | "Error";
+  status: EmailAuditStatus;
   reason?: string;
   workflow?: string;
   confidence?: any;
@@ -36,6 +43,7 @@ export function auditEmail(event: {
   const location = safeName(event.location || "general");
 
   const row = {
+    email_time_logged: new Date().toISOString(),
     source_email_id: event.source_email_id || "",
     subject: event.subject || "",
     from: event.from || "",

@@ -5,18 +5,12 @@ import {
 } from "@/lib/operations/workflowProtection";
 import { internalFetch } from "@/lib/system/internalFetch";
 import { logSystemEvent, logSystemError } from "@/lib/system/logger";
+import { auditEmail } from "@/lib/operations/emailAudit";
+import { DEFAULT_CLIENT_ID } from "@/lib/config/clientProfiles";
 
-const ALLOWED_DOMAINS = [
-  "davita.com",
-  "davita.sa",
-];
+const ALLOWED_DOMAINS = ["davita.com", "davita.sa"];
 
-const ALLOWED_SENDERS = [
-  "info.hlines@gmail.com",
-
-  // Add exact DaVita sender emails here later if needed:
-  // "procurement.person@davita.com",
-];
+const ALLOWED_SENDERS = ["info.hlines@gmail.com"];
 
 function extractEmailAddress(value: string) {
   const raw = String(value || "").trim().toLowerCase();
@@ -53,8 +47,21 @@ function pickEmailText(emailData: any) {
   );
 }
 
-export async function GET() {
+function safeLocation(value: any) {
+  return (
+    String(value || "general")
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "general"
+  );
+}
+
+export async function GET(req: Request) {
   try {
+    const url = new URL(req.url);
+    const force = url.searchParams.get("force") === "true";
+
     const oauth2Client = new google.auth.OAuth2(
       process.env.GOOGLE_CLIENT_ID,
       process.env.GOOGLE_CLIENT_SECRET,
@@ -90,23 +97,40 @@ export async function GET() {
     for (const msg of allMessages) {
       if (!msg.id) continue;
 
-      if (hasProcessedEmail(msg.id)) {
+      const msgId = String(msg.id);
+
+      const alreadyProcessed = hasProcessedEmail(msgId);
+
+      if (!force && alreadyProcessed) {
         results.push({
-          id: msg.id,
+          id: msgId,
           skipped: true,
           reason: "already_processed",
         });
         continue;
       }
 
-      const readRes = await internalFetch(`/api/gmail/message/${msg.id}`);
+      const readRes = await internalFetch(`/api/gmail/message/${msgId}`);
       const emailData = await readRes.json();
 
       if (!readRes.ok) {
+        auditEmail({
+          client: DEFAULT_CLIENT_ID,
+          location: "general",
+          source_email_id: msgId,
+          subject: "",
+          from: "",
+          status: "Error",
+          workflow: "Gmail Intake",
+          reason: emailData.error || "Failed to read email",
+        });
+
         results.push({
-          id: msg.id,
+          id: msgId,
           error: emailData.error || "Failed to read email",
         });
+
+        markEmailProcessed(msgId);
         continue;
       }
 
@@ -114,29 +138,40 @@ export async function GET() {
 
       if (!isAllowedSender(from)) {
         results.push({
-          id: msg.id,
+          id: msgId,
           subject: emailData.subject || "",
           from,
           skipped: true,
           reason: "sender_not_allowed",
         });
 
-        markEmailProcessed(msg.id);
+        markEmailProcessed(msgId);
         continue;
       }
 
       const safeText = pickEmailText(emailData);
 
       if (!safeText.trim()) {
+        auditEmail({
+          client: DEFAULT_CLIENT_ID,
+          location: "general",
+          source_email_id: msgId,
+          subject: emailData.subject || "",
+          from,
+          status: "Needs Human Review",
+          workflow: "Gmail Intake",
+          reason: "Allowed email found, but no readable text was extracted.",
+        });
+
         results.push({
-          id: msg.id,
+          id: msgId,
           subject: emailData.subject || "",
           from,
           skipped: true,
           reason: "empty_email_text",
         });
 
-        markEmailProcessed(msg.id);
+        markEmailProcessed(msgId);
         continue;
       }
 
@@ -150,19 +185,32 @@ export async function GET() {
           text: safeText,
           subject: emailData.subject || "",
           from,
-          source_email_id: msg.id,
+          source_email_id: msgId,
         }),
       });
 
       const analysis = await analyzeRes.json();
 
       if (!analyzeRes.ok) {
+        auditEmail({
+          client: DEFAULT_CLIENT_ID,
+          location: "general",
+          source_email_id: msgId,
+          subject: emailData.subject || "",
+          from,
+          status: "Error",
+          workflow: "Analyze Email",
+          reason: analysis.error || "Analyze email failed",
+        });
+
         results.push({
-          id: msg.id,
+          id: msgId,
           subject: emailData.subject || "",
           from,
           error: analysis.error || "Analyze email failed",
         });
+
+        markEmailProcessed(msgId);
         continue;
       }
 
@@ -173,19 +221,42 @@ export async function GET() {
         },
         body: JSON.stringify({
           ...analysis,
-          source_email_id: msg.id,
+          force_process: force,
+          already_processed_before_force: alreadyProcessed,
+          source_email_id: msgId,
           source_email_from: from,
+          subject: emailData.subject || "",
+          from,
         }),
       });
 
       const processResult = await processRes.json();
 
       if (processRes.ok) {
-        markEmailProcessed(msg.id);
+        markEmailProcessed(msgId);
+      } else {
+        auditEmail({
+          client: analysis.client || DEFAULT_CLIENT_ID,
+          location: safeLocation(analysis.location || "general"),
+          source_email_id: msgId,
+          subject: emailData.subject || "",
+          from,
+          email_type: analysis.email_type || "",
+          status: "Error",
+          reason: processResult.error || "Process email failed",
+          workflow: "Process Email",
+          confidence: analysis.confidence,
+          delivery_date: analysis.delivery_date || "",
+          po_numbers: analysis.po_numbers || analysis.po_number || "",
+          dn_numbers: analysis.dn_numbers || "",
+          mrn_numbers: analysis.mrn_numbers || "",
+          recommended_action: analysis.recommended_action || "",
+          notes: analysis.notes || "",
+        });
       }
 
       results.push({
-        id: msg.id,
+        id: msgId,
         subject: emailData.subject || "",
         from,
         analysis,
@@ -205,6 +276,7 @@ export async function GET() {
         processed,
         skipped,
         errors,
+        force,
       }
     );
 
@@ -214,6 +286,7 @@ export async function GET() {
       processed,
       skipped,
       errors,
+      force,
       results,
     });
   } catch (error: any) {

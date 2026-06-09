@@ -11,11 +11,11 @@ import { auditEmail } from "@/lib/operations/emailAudit";
 
 function safeName(value: string) {
   return (
-    String(value || "unknown")
+    String(value || "general")
       .toLowerCase()
       .trim()
       .replace(/[^a-z0-9]+/g, "_")
-      .replace(/^_+|_+$/g, "") || "unknown"
+      .replace(/^_+|_+$/g, "") || "general"
   );
 }
 
@@ -33,8 +33,14 @@ function normalizeItemsWithDeliveryDate(items: any[], deliveryDate: string) {
   return (items || [])
     .map((item: any) => ({
       ...item,
+      item_code: item.item_code || item.code || "",
       item_name: item.item_name || item.name || item.description || "",
       quantity: Number(item.quantity || item.qty || item.required_qty || 0),
+      unit: item.unit || "",
+      rate:
+        item.rate === undefined || item.rate === null || item.rate === ""
+          ? null
+          : Number(item.rate),
       delivery_date: item.delivery_date || deliveryDate || "",
     }))
     .filter((item: any) => item.item_name || item.quantity);
@@ -78,9 +84,15 @@ function createHumanReviewAction({
     subject: analysis.subject || "",
     from: analysis.source_email_from || analysis.from || "",
     email_type: analysis.email_type || "Other",
-    po_numbers: analysis.po_numbers?.join(", ") || analysis.po_number || "",
-    dn_numbers: analysis.dn_numbers?.join(", ") || "",
-    mrn_numbers: analysis.mrn_numbers?.join(", ") || "",
+    po_numbers: Array.isArray(analysis.po_numbers)
+      ? analysis.po_numbers.join(", ")
+      : analysis.po_number || "",
+    dn_numbers: Array.isArray(analysis.dn_numbers)
+      ? analysis.dn_numbers.join(", ")
+      : "",
+    mrn_numbers: Array.isArray(analysis.mrn_numbers)
+      ? analysis.mrn_numbers.join(", ")
+      : "",
     delivery_date: deliveryDate,
     pending_action:
       analysis.recommended_action ||
@@ -109,8 +121,6 @@ function logAI({
   analysis: any;
   extra?: Record<string, any>;
 }) {
-  const deliveryDate = firstDeliveryDate(analysis);
-
   appendRowToSheet(client, location, "AI_Log", {
     client,
     location,
@@ -122,7 +132,23 @@ function logAI({
     urgency: analysis.urgency,
     recommended_action: analysis.recommended_action,
     human_required: analysis.human_required,
-    delivery_date: deliveryDate,
+    delivery_date: firstDeliveryDate(analysis),
+    notes: analysis.notes || "",
+    ...extra,
+  });
+
+  appendMasterRow(client, "AI_Log", {
+    client,
+    location,
+    source_email_id: analysis.source_email_id || "",
+    subject: analysis.subject || "",
+    from: analysis.source_email_from || analysis.from || "",
+    email_type: analysis.email_type || "Other",
+    confidence: analysis.confidence,
+    urgency: analysis.urgency,
+    recommended_action: analysis.recommended_action,
+    human_required: analysis.human_required,
+    delivery_date: firstDeliveryDate(analysis),
     notes: analysis.notes || "",
     ...extra,
   });
@@ -141,7 +167,7 @@ function audit({
   client: string;
   location: string;
   analysis: any;
-  status: "Processed" | "Ignored" | "Needs Human Review" | "Error";
+  status: "Processed" | "Ignored" | "Duplicate" | "Needs Human Review" | "Error";
   reason?: string;
   workflow?: string;
   rowsAdded?: number;
@@ -170,13 +196,32 @@ function audit({
 }
 
 export async function POST(req: Request) {
+  let analysis: any = {};
+
   try {
-    const analysis = await req.json();
+    analysis = await req.json();
+
+    const forceProcess = analysis.force_process === true;
 
     if (
       analysis.source_email_id &&
-      hasProcessedEmail(analysis.source_email_id)
+      hasProcessedEmail(analysis.source_email_id) &&
+      !forceProcess
     ) {
+      const client = safeName(analysis.client || DEFAULT_CLIENT_ID);
+      const location = safeName(analysis.location || "general");
+
+      audit({
+        client,
+        location,
+        analysis,
+        status: "Duplicate",
+        reason: "Email was already processed and force_process was not enabled.",
+        workflow: "Duplicate Guard",
+        rowsAdded: 0,
+        itemsFound: 0,
+      });
+
       return Response.json({
         success: false,
         duplicate: true,
@@ -264,30 +309,19 @@ export async function POST(req: Request) {
         results.push(result);
       }
 
-      if (totalRowsAdded === 0) {
-        audit({
-          client,
-          location: defaultLocation,
-          analysis,
-          status: "Needs Human Review",
-          reason:
-            "Quarterly PO was detected but no Excel requirement rows were created.",
-          workflow: "Quarterly PO",
-          rowsAdded: totalRowsAdded,
-          itemsFound: totalItemsFound,
-        });
-      } else {
-        audit({
-          client,
-          location: defaultLocation,
-          analysis,
-          status: "Processed",
-          reason: "Quarterly PO recorded into Excel.",
-          workflow: "Quarterly PO",
-          rowsAdded: totalRowsAdded,
-          itemsFound: totalItemsFound,
-        });
-      }
+      audit({
+        client,
+        location: defaultLocation,
+        analysis,
+        status: totalRowsAdded > 0 ? "Processed" : "Needs Human Review",
+        reason:
+          totalRowsAdded > 0
+            ? "Quarterly PO recorded into Excel."
+            : "Quarterly PO detected but no Excel requirement rows were created.",
+        workflow: "Quarterly PO",
+        rowsAdded: totalRowsAdded,
+        itemsFound: totalItemsFound,
+      });
 
       finishEmail(analysis.source_email_id);
 
@@ -334,7 +368,7 @@ export async function POST(req: Request) {
           location,
           analysis,
           status: "Needs Human Review",
-          reason: `${emailType} detected but no item rows were extracted, so no PO rows were created.`,
+          reason: `${emailType} detected but no item rows were extracted.`,
           workflow: emailType,
           rowsAdded: 0,
           itemsFound: 0,
@@ -348,12 +382,12 @@ export async function POST(req: Request) {
           client,
           location,
           delivery_date: deliveryDate,
+          human_review_created: true,
           result: {
             success: false,
             rows_added: 0,
             reason: "No items extracted",
           },
-          human_review_created: true,
         });
       }
 
@@ -412,15 +446,19 @@ export async function POST(req: Request) {
       const location = defaultLocation;
       const items = allItemsFromAnalysis(analysis, deliveryDate);
 
-      appendRowToSheet(client, location, "Active_Delivery_Tasks", {
+      const deliveryTaskRow = {
         client,
         location,
         source_email_id: analysis.source_email_id || "",
         subject: analysis.subject || "",
         from: analysis.source_email_from || analysis.from || "",
         email_type: emailType,
-        po_numbers: analysis.po_numbers?.join(", ") || "",
-        delivery_dates: analysis.delivery_dates?.join(", ") || "",
+        po_numbers: Array.isArray(analysis.po_numbers)
+          ? analysis.po_numbers.join(", ")
+          : "",
+        delivery_dates: Array.isArray(analysis.delivery_dates)
+          ? analysis.delivery_dates.join(", ")
+          : "",
         delivery_date: deliveryDate,
         items_found: items.length,
         items_summary: items
@@ -429,28 +467,19 @@ export async function POST(req: Request) {
         action: analysis.recommended_action || "Review delivery follow-up",
         status: "Pending Human Review",
         human_required: true,
-        notes: analysis.notes || "",
-      });
-
-      appendMasterRow(client, "Pending_Actions", {
-        client,
-        location,
-        source_email_id: analysis.source_email_id || "",
-        subject: analysis.subject || "",
-        from: analysis.source_email_from || analysis.from || "",
-        email_type: emailType,
-        po_numbers: analysis.po_numbers?.join(", ") || "",
-        delivery_date: deliveryDate,
-        items_found: items.length,
-        pending_action:
-          analysis.recommended_action || "Review delivery follow-up",
-        action_type: "Delivery Follow-up",
-        status: "Open",
-        human_required: true,
         notes:
           items.length > 0
             ? analysis.notes || ""
             : `${analysis.notes || ""} No item rows were extracted from the email body/attachment.`,
+      };
+
+      appendRowToSheet(client, location, "Active_Delivery_Tasks", deliveryTaskRow);
+      appendMasterRow(client, "Pending_Actions", {
+        ...deliveryTaskRow,
+        pending_action:
+          analysis.recommended_action || "Review delivery follow-up",
+        action_type: "Delivery Follow-up",
+        status: "Open",
       });
 
       if (items.length === 0) {
@@ -509,9 +538,15 @@ export async function POST(req: Request) {
         source_email_id: analysis.source_email_id || "",
         subject: analysis.subject || "",
         from: analysis.source_email_from || analysis.from || "",
-        mrn_numbers: analysis.mrn_numbers?.join(", ") || "",
-        dn_numbers: analysis.dn_numbers?.join(", ") || "",
-        po_numbers: analysis.po_numbers?.join(", ") || "",
+        mrn_numbers: Array.isArray(analysis.mrn_numbers)
+          ? analysis.mrn_numbers.join(", ")
+          : "",
+        dn_numbers: Array.isArray(analysis.dn_numbers)
+          ? analysis.dn_numbers.join(", ")
+          : "",
+        po_numbers: Array.isArray(analysis.po_numbers)
+          ? analysis.po_numbers.join(", ")
+          : "",
         status: "Received",
         notes: analysis.notes || "",
       });
@@ -522,9 +557,15 @@ export async function POST(req: Request) {
         source_email_id: analysis.source_email_id || "",
         subject: analysis.subject || "",
         from: analysis.source_email_from || analysis.from || "",
-        mrn_numbers: analysis.mrn_numbers?.join(", ") || "",
-        dn_numbers: analysis.dn_numbers?.join(", ") || "",
-        po_numbers: analysis.po_numbers?.join(", ") || "",
+        mrn_numbers: Array.isArray(analysis.mrn_numbers)
+          ? analysis.mrn_numbers.join(", ")
+          : "",
+        dn_numbers: Array.isArray(analysis.dn_numbers)
+          ? analysis.dn_numbers.join(", ")
+          : "",
+        po_numbers: Array.isArray(analysis.po_numbers)
+          ? analysis.po_numbers.join(", ")
+          : "",
         status: "Received",
         notes: analysis.notes || "",
       });
@@ -673,25 +714,19 @@ export async function POST(req: Request) {
     });
   } catch (error: any) {
     try {
-      const fallbackAnalysis = await req
-        .clone()
-        .json()
-        .catch(() => ({}));
-
-      const client = safeName(fallbackAnalysis.client || DEFAULT_CLIENT_ID);
-      const location = safeName(fallbackAnalysis.location || "general");
+      const client = safeName(analysis.client || DEFAULT_CLIENT_ID);
+      const location = safeName(analysis.location || "general");
 
       auditEmail({
         client,
         location,
-        source_email_id: fallbackAnalysis.source_email_id || "",
-        subject: fallbackAnalysis.subject || "",
-        from:
-          fallbackAnalysis.source_email_from || fallbackAnalysis.from || "",
-        email_type: fallbackAnalysis.email_type || "",
+        source_email_id: analysis.source_email_id || "",
+        subject: analysis.subject || "",
+        from: analysis.source_email_from || analysis.from || "",
+        email_type: analysis.email_type || "",
         status: "Error",
         reason: error.message || "Process email failed",
-        notes: fallbackAnalysis.notes || "",
+        notes: analysis.notes || "",
       });
     } catch {}
 
