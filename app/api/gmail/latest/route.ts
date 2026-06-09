@@ -1,9 +1,15 @@
 import { google } from "googleapis";
 import * as XLSX from "xlsx";
 import JSZip from "jszip";
+import * as pdfParse from "pdf-parse";
 
 function decodeBase64UrlToBuffer(data: string): Buffer {
-  return Buffer.from(data.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+  return Buffer.from(
+    String(data || "")
+      .replace(/-/g, "+")
+      .replace(/_/g, "/"),
+    "base64"
+  );
 }
 
 function decodeBase64UrlToText(data: string): string {
@@ -16,10 +22,12 @@ function extractBody(payload: any): string {
   if (payload.body?.data) return decodeBase64UrlToText(payload.body.data);
 
   if (Array.isArray(payload.parts)) {
-    for (const part of payload.parts) {
-      if (part.mimeType === "text/plain" && part.body?.data) {
-        return decodeBase64UrlToText(part.body.data);
-      }
+    const plainPart = payload.parts.find(
+      (part: any) => part.mimeType === "text/plain" && part.body?.data
+    );
+
+    if (plainPart?.body?.data) {
+      return decodeBase64UrlToText(plainPart.body.data);
     }
 
     for (const part of payload.parts) {
@@ -46,11 +54,20 @@ function excelBufferToText(buffer: Buffer): string {
     text += `\nSHEET: ${sheetName}\n`;
 
     rows.forEach((row) => {
-      text += row.map((cell) => String(cell)).join(" | ") + "\n";
+      text += row.map((cell) => String(cell ?? "")).join(" | ") + "\n";
     });
   });
 
   return text;
+}
+
+async function pdfBufferToText(buffer: Buffer): Promise<string> {
+  try {
+    const parsed = await (pdfParse as any)(buffer);
+    return parsed?.text || "[PDF parsed but no text found]";
+  } catch (error: any) {
+    return `[PDF extraction failed: ${error?.message || String(error)}]`;
+  }
 }
 
 async function parseAttachmentFile(
@@ -63,12 +80,12 @@ async function parseAttachmentFile(
     return excelBufferToText(buffer);
   }
 
-  if (lower.endsWith(".txt")) {
+  if (lower.endsWith(".csv") || lower.endsWith(".txt")) {
     return buffer.toString("utf8");
   }
 
   if (lower.endsWith(".pdf")) {
-    return "[PDF detected but PDF extraction not enabled yet]";
+    return await pdfBufferToText(buffer);
   }
 
   if (lower.endsWith(".zip")) {
@@ -89,6 +106,18 @@ async function parseAttachmentFile(
   }
 
   return "";
+}
+
+function attachmentType(filename: string) {
+  const lower = filename.toLowerCase();
+
+  if (lower.endsWith(".zip")) return "zip";
+  if (lower.endsWith(".pdf")) return "pdf";
+  if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) return "excel";
+  if (lower.endsWith(".csv")) return "csv";
+  if (lower.endsWith(".txt")) return "text";
+
+  return "unknown";
 }
 
 export async function GET() {
@@ -168,25 +197,13 @@ export async function GET() {
             const buffer = decodeBase64UrlToBuffer(attachmentData);
             const extractedText = await parseAttachmentFile(filename, buffer);
 
+            attachments.push({
+              filename,
+              type: attachmentType(filename),
+              text_length: extractedText.length,
+            });
+
             if (extractedText) {
-              const lower = filename.toLowerCase();
-
-              const type = lower.endsWith(".zip")
-                ? "zip"
-                : lower.endsWith(".pdf")
-                ? "pdf"
-                : lower.endsWith(".xlsx") || lower.endsWith(".xls")
-                ? "excel"
-                : lower.endsWith(".txt")
-                ? "text"
-                : "unknown";
-
-              attachments.push({
-                filename,
-                type,
-                text_length: extractedText.length,
-              });
-
               attachmentsText += `\n\nFILE: ${filename}\n${extractedText}`;
             }
           }
@@ -204,6 +221,9 @@ export async function GET() {
 
     const combinedText = `SUBJECT:
 ${subject}
+
+FROM:
+${from}
 
 EMAIL BODY:
 ${body}
