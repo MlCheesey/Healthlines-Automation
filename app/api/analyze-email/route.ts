@@ -1,6 +1,8 @@
 import { normalizeClassification } from "@/lib/ai/emailClassificationSchema";
 import { logSystemEvent, logSystemError } from "@/lib/system/logger";
 
+const MIN_CONFIDENCE_TO_AUTOMATE = 0.7;
+
 function extractRefs(text: string, regex: RegExp) {
   const matches: string[] = [];
   let match;
@@ -29,9 +31,107 @@ function extractDates(text: string) {
   return [...new Set(dates)];
 }
 
+function extractSimpleItems(text: string) {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const items: any[] = [];
+
+  for (const line of lines) {
+    const qtyMatch =
+      line.match(/(.+?)\s+[-–—]?\s*(qty|quantity)\s*[:=]?\s*(\d+)/i) ||
+      line.match(/(.+?)\s+(\d+)\s*(pcs|pc|box|boxes|each|ea|ctn|carton|bottle|pack|packs)?\b/i);
+
+    if (!qtyMatch) continue;
+
+    const itemName = String(qtyMatch[1] || "").trim();
+    const quantity = Number(qtyMatch[3] || qtyMatch[2] || 0);
+    const unit = String(qtyMatch[4] || "").trim();
+
+    if (itemName.length < 3 || !quantity) continue;
+
+    items.push({
+      item_code: "",
+      item_name: itemName,
+      quantity,
+      unit,
+      delivery_date: "",
+    });
+  }
+
+  return items;
+}
+
+function forceOther(reason: string, original: any) {
+  return {
+    ...original,
+    email_type: "Other",
+    confidence: Number(original?.confidence || 0),
+    human_required: true,
+    recommended_action: "Review email manually",
+    notes: `${reason}${original?.notes ? ` Original notes: ${original.notes}` : ""}`,
+    items: original?.items || [],
+    locations: original?.locations || [],
+  };
+}
+
+function postProcessClassification(raw: any, text: string) {
+  const lower = text.toLowerCase();
+  const confidence = Number(raw?.confidence || 0);
+
+  if (confidence < MIN_CONFIDENCE_TO_AUTOMATE) {
+    return forceOther(
+      `Low confidence classification blocked from automation. Confidence was ${confidence}.`,
+      raw
+    );
+  }
+
+  if (
+    lower.includes("credit note") ||
+    lower.includes("duplicate delivery") ||
+    lower.includes("paid in our system") ||
+    lower.includes("correct below invoice")
+  ) {
+    return {
+      ...raw,
+      email_type: "Invoice Issue",
+      confidence: Math.max(confidence, 0.8),
+      human_required: true,
+      recommended_action: "Review credit note / invoice issue manually",
+      notes:
+        "Detected credit note, duplicate delivery, or invoice correction wording.",
+    };
+  }
+
+  return raw;
+}
+
 function fallbackClassify(text: string) {
   const lower = text.toLowerCase();
   const deliveryDates = extractDates(text);
+  const simpleItems = extractSimpleItems(text);
+
+  if (
+    lower.includes("credit note") ||
+    lower.includes("duplicate delivery") ||
+    lower.includes("paid in our system") ||
+    lower.includes("correct below invoice")
+  ) {
+    return {
+      email_type: "Invoice Issue",
+      confidence: 0.82,
+      po_numbers: extractRefs(text, /po[\s:#-]*([a-z0-9/-]+)/gi),
+      dn_numbers: extractRefs(text, /dn[\s:#-]*([a-z0-9/-]+)/gi),
+      mrn_numbers: extractRefs(text, /mrn[\s:#-]*([a-z0-9/-]+)/gi),
+      items: simpleItems,
+      human_required: true,
+      recommended_action: "Review credit note / invoice issue manually",
+      notes:
+        "Fallback classifier detected credit note, duplicate delivery, or invoice correction wording.",
+    };
+  }
 
   if (
     lower.includes("mrn") ||
@@ -40,7 +140,7 @@ function fallbackClassify(text: string) {
   ) {
     return {
       email_type: "MRN",
-      confidence: 0.7,
+      confidence: 0.78,
       mrn_numbers: extractRefs(text, /mrn[\s:#-]*([a-z0-9/-]+)/gi),
       dn_numbers: extractRefs(text, /dn[\s:#-]*([a-z0-9/-]+)/gi),
       po_numbers: extractRefs(text, /po[\s:#-]*([a-z0-9/-]+)/gi),
@@ -57,51 +157,50 @@ function fallbackClassify(text: string) {
     lower.includes("request orders")
   ) {
     return {
-      email_type: lower.includes("quarterly")
-        ? "Quarterly PO"
-        : "Additional PO",
-      confidence: 0.65,
+      email_type: lower.includes("quarterly") ? "Quarterly PO" : "Additional PO",
+      confidence: simpleItems.length > 0 ? 0.78 : 0.62,
       po_numbers: extractRefs(text, /po[\s:#-]*([a-z0-9/-]+)/gi),
       delivery_dates: deliveryDates,
       delivery_date: deliveryDates[0] || "",
-      items: [],
+      items: simpleItems,
       human_required: true,
       recommended_action: deliveryDates.length
         ? `Record PO and schedule delivery for ${deliveryDates[0]}`
         : "Review PO manually and confirm extracted items",
-      notes: deliveryDates.length
-        ? "Fallback classifier detected PO with delivery date."
-        : "Fallback classifier detected PO-related wording.",
+      notes: simpleItems.length
+        ? "Fallback classifier detected PO and extracted simple item lines."
+        : "Fallback classifier detected PO-related wording, but item extraction was unclear.",
     };
   }
 
   if (
     lower.includes("delivery") ||
     lower.includes("deliver") ||
-    lower.includes("stock")
+    lower.includes("stock") ||
+    lower.includes("follow up below items") ||
+    lower.includes("below items")
   ) {
     return {
       email_type: "Delivery Instruction",
-      confidence: 0.55,
+      confidence: simpleItems.length > 0 ? 0.76 : 0.6,
       po_numbers: extractRefs(text, /po[\s:#-]*([a-z0-9/-]+)/gi),
       delivery_dates: deliveryDates,
       delivery_date: deliveryDates[0] || "",
+      items: simpleItems,
       human_required: true,
       recommended_action: deliveryDates.length
         ? `Review delivery instruction for ${deliveryDates[0]}`
         : "Review delivery instruction manually",
-      notes: "Fallback classifier detected delivery-related wording.",
+      notes: simpleItems.length
+        ? "Fallback classifier detected delivery wording and extracted simple item lines."
+        : "Fallback classifier detected delivery wording, but item extraction was unclear.",
     };
   }
 
-  if (
-    lower.includes("invoice") ||
-    lower.includes("payment") ||
-    lower.includes("credit note")
-  ) {
+  if (lower.includes("invoice") || lower.includes("payment")) {
     return {
       email_type: "Invoice Issue",
-      confidence: 0.55,
+      confidence: 0.72,
       human_required: true,
       recommended_action: "Review invoice/payment issue manually",
       notes: "Fallback classifier detected invoice-related wording.",
@@ -201,17 +300,17 @@ JSON shape:
 }
 
 Rules:
-- Do not invent quantities, PO numbers, DN numbers, MRNs, locations, or dates.
-- If uncertain, set human_required true.
-- If email contains MRN references, classify as MRN.
-- If email contains quarterly multi-location PO, classify as Quarterly PO and use locations[].
-- If email contains a one-off PO, classify as Additional PO.
+- Never guess. If uncertain, confidence must be below 0.7.
+- If confidence is below 0.7, use email_type "Other".
+- Credit note / duplicate delivery / invoice correction emails must be "Invoice Issue", not MRN.
+- MRN only if the email is mainly about material receipt note / goods receipt confirmation.
+- Do not classify credit note requests as MRN just because old quoted text contains MRN.
+- PO only if there is a real purchase order request or PO attachment/text.
+- Delivery Instruction / Delivery Reminder only if the email asks to deliver/follow up stock/items.
 - If item extraction is unclear, leave items empty and explain in notes.
-- If the email mentions a delivery date like "Please deliver on November 16, 2025", extract it into delivery_dates[].
-- If that date applies to all requested products, also put that same date in each item.delivery_date.
-- If delivery date applies only to a location, put it inside that location.delivery_date and its items.
-- Missing MRN does not block invoice; missing rate blocks invoice.
-- Client is usually davita only if clearly mentioned or context strongly indicates it.
+- Do not extract random words from privacy notices as PO numbers.
+- Client is "davita" only if sender/domain/text clearly indicates DaVita.
+- Location should be extracted from subject/body, for example KFH Al Ahsa, Khobar, Jeddah, Dammam.
 
 Email text:
 ${text}
@@ -272,6 +371,8 @@ export async function POST(req: Request) {
       rawClassification = fallbackClassify(text);
     }
 
+    rawClassification = postProcessClassification(rawClassification, text);
+
     const normalized = normalizeClassification(rawClassification);
 
     logSystemEvent("email_analyzed", "Email analyzed", {
@@ -285,9 +386,7 @@ export async function POST(req: Request) {
     return Response.json({
       ...normalized,
       delivery_date:
-        (normalized as any).delivery_date ||
-        normalized.delivery_dates?.[0] ||
-        "",
+        (normalized as any).delivery_date || normalized.delivery_dates?.[0] || "",
       classifier,
       source_email_id: body.source_email_id || "",
     });
