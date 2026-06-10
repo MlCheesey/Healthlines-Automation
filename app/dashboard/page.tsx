@@ -11,6 +11,8 @@ import SystemOverviewPanel from "@/components/dashboard/SystemOverviewPanel";
 import WorkerActivityPanel from "@/components/dashboard/WorkerActivityPanel";
 import AnalyticsSummaryPanel from "@/components/dashboard/AnalyticsSummaryPanel";
 
+import MRNOCRTestPanel from "@/components/dashboard/MRNOCRTestPanel";
+import NeedsReviewPanel from "@/components/dashboard/NeedsReviewPanel";
 import OpenActionsPanel from "@/components/dashboard/OpenActionsPanel";
 import DeliveryTasksPanel from "@/components/dashboard/DeliveryTasksPanel";
 import DeliverySchedulePanel from "@/components/dashboard/DeliverySchedulePanel";
@@ -81,6 +83,14 @@ export default function DashboardPage() {
                 </>
               )}
 
+              {activeTab === "Needs Review" && (
+                <>
+                  <NeedsReviewPanel />
+                  <OpenActionsPanel />
+                  <RetryQueuePanel />
+                </>
+              )}
+
               {activeTab === "Delivery Tasks" && (
                 <>
                   <DeliveryTasksPanel />
@@ -100,6 +110,7 @@ export default function DashboardPage() {
 
               {activeTab === "MRNs" && (
                 <>
+                  <MRNOCRTestPanel />
                   <OpenActionsPanel />
                   <NotificationsPanel />
                   <DiscrepancyPanel />
