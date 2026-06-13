@@ -201,7 +201,12 @@ export async function POST(req: Request) {
   try {
     analysis = await req.json();
 
-    const forceProcess = analysis.force_process === true;
+    const forceProcess =
+  analysis.force_process === true ||
+  analysis.force === true ||
+  analysis.already_processed_before_force === true ||
+  String(analysis.force_process || "").toLowerCase() === "true" ||
+  String(analysis.force || "").toLowerCase() === "true";
 
     if (
       analysis.source_email_id &&

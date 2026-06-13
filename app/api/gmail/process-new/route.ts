@@ -215,20 +215,20 @@ export async function GET(req: Request) {
       }
 
       const processRes = await internalFetch("/api/process-email", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          ...analysis,
-          force_process: force,
-          already_processed_before_force: alreadyProcessed,
-          source_email_id: msgId,
-          source_email_from: from,
-          subject: emailData.subject || "",
-          from,
-        }),
-      });
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    ...analysis,
+    force_process: force,
+    already_processed_before_force: alreadyProcessed,
+    source_email_id: msgId,
+    source_email_from: from,
+    subject: emailData.subject || "",
+    from,
+  }),
+});
 
       const processResult = await processRes.json();
 
