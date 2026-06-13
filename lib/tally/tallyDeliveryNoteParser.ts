@@ -188,6 +188,10 @@ export function parseTallyDeliveryNotes(raw: any) {
     .filter((voucher: any) => voucher.dn_number);
 }
 
+export function parseTallyDeliveryNotesXml(rawXml: string) {
+  return parseTallyDeliveryNotes(rawXml);
+}
+
 export function parseTallyDeliveryNoteXml(rawXml: string) {
   return parseTallyDeliveryNotes(rawXml);
 }
