@@ -84,6 +84,39 @@ function getOtherReference(data: InvoiceData) {
   return "MRN Pending";
 }
 
+function imageToDataUri(filePath: string) {
+  if (!fs.existsSync(filePath)) return "";
+
+  const extension = path.extname(filePath).toLowerCase();
+
+  const mime =
+    extension === ".jpg" || extension === ".jpeg"
+      ? "image/jpeg"
+      : extension === ".webp"
+        ? "image/webp"
+        : "image/png";
+
+  const base64 = fs.readFileSync(filePath).toString("base64");
+
+  return `data:${mime};base64,${base64}`;
+}
+
+function getLogoDataUri() {
+  const possiblePaths = [
+    path.join(process.cwd(), "public", "healthlines-logo.png"),
+    path.join(process.cwd(), "public", "healthlines-logo.jpg"),
+    path.join(process.cwd(), "public", "healthlines-logo.jpeg"),
+    path.join(process.cwd(), "public", "logo.png"),
+  ];
+
+  for (const filePath of possiblePaths) {
+    const dataUri = imageToDataUri(filePath);
+    if (dataUri) return dataUri;
+  }
+
+  return "";
+}
+
 export async function generateInvoicePdf(data: InvoiceData) {
   let browser: any = null;
 
@@ -155,6 +188,8 @@ export async function generateInvoicePdf(data: InvoiceData) {
     );
 
     const html = invoiceHtmlTemplate({
+      logo_data_uri: getLogoDataUri(),
+
       invoice_number: data.invoice_number,
       invoice_date: today(),
       invoice_time: nowTime(),
@@ -247,6 +282,7 @@ export async function generateInvoicePdf(data: InvoiceData) {
         path: filePath,
         mrn_status: data.mrn_status || "Pending",
         mrn_number: data.mrn_number || "",
+        logo_included: Boolean(getLogoDataUri()),
       }
     );
 

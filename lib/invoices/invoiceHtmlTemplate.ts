@@ -18,6 +18,7 @@ type InvoiceItem = {
 };
 
 type InvoiceTemplateData = {
+  logo_data_uri?: string;
   invoice_number: string;
   invoice_date: string;
   invoice_time: string;
@@ -78,10 +79,13 @@ export function invoiceHtmlTemplate(data: InvoiceTemplateData) {
 <head>
 <meta charset="utf-8" />
 <style>
-body{font-family:Arial,sans-serif;margin:0;padding:20px;font-size:12px;color:#000;}
+body{font-family:Arial,sans-serif;margin:0;padding:18px;font-size:12px;color:#000;}
 table{width:100%;border-collapse:collapse;}
 td,th{border:1px solid #000;padding:5px;vertical-align:top;}
-.heading{font-size:20px;font-weight:bold;text-align:center;margin-bottom:10px;}
+.header-table td{border:none;padding:0;}
+.logo{height:58px;max-width:220px;object-fit:contain;}
+.company-name{font-size:17px;font-weight:bold;}
+.heading{font-size:20px;font-weight:bold;text-align:center;margin:10px 0;}
 .center{text-align:center;}
 .right{text-align:right;}
 .bold{font-weight:bold;}
@@ -92,6 +96,26 @@ td,th{border:1px solid #000;padding:5px;vertical-align:top;}
 </style>
 </head>
 <body>
+
+<table class="header-table">
+<tr>
+<td width="30%">
+${
+  data.logo_data_uri
+    ? `<img src="${data.logo_data_uri}" class="logo" />`
+    : `<div class="company-name">Health Lines</div>`
+}
+</td>
+<td width="40%" class="center">
+<div class="company-name">Health Lines Medical Supply Co.</div>
+<div class="small">Medical Supplies & Distribution</div>
+</td>
+<td width="30%" class="right small">
+<div>Kingdom of Saudi Arabia</div>
+<div>Tax Invoice</div>
+</td>
+</tr>
+</table>
 
 <div class="heading">TAX INVOICE</div>
 

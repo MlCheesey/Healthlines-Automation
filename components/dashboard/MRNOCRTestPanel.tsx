@@ -39,7 +39,7 @@ export default function MRNOCRTestPanel() {
       <div className="mt-5 flex flex-wrap gap-3 items-center">
         <input
           type="file"
-          accept="image/*,.png,.jpg,.jpeg,.webp,.tif,.tiff"
+          accept="image/*,.png,.jpg,.jpeg,.webp,.tif,.tiff,.pdf,application/pdf"
           onChange={(e) => setFile(e.target.files?.[0] || null)}
           className="text-sm text-zinc-300"
         />
