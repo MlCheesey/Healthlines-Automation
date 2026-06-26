@@ -47,6 +47,27 @@ function mrnDraftKey(client: string, location: string, dnNumber: string) {
   return `${client}__${location}__${dnNumber}`;
 }
 
+function shouldSkipWorkbook(file: string) {
+  const lower = file.toLowerCase();
+
+  if (!lower.endsWith(".xlsx")) return true;
+  if (lower === "master.xlsx") return true;
+  if (lower.startsWith("~$")) return true;
+
+  return false;
+}
+
+function safeLocationFromFile(file: string) {
+  return (
+    file
+      .replace(/\.xlsx$/i, "")
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "") || "general"
+  );
+}
+
 async function createMrnFollowupDraft(item: any) {
   const to = process.env.DAVITA_MRN_FOLLOWUP_TO || "";
 
@@ -107,26 +128,62 @@ export async function GET() {
         success: true,
         overdue_count: 0,
         overdue: [],
+        skipped_files: [],
+        message: "Clients folder does not exist yet.",
       });
     }
 
     const overdue: any[] = [];
     const draftResults: any[] = [];
+    const skippedFiles: any[] = [];
+    const scannedFiles: string[] = [];
 
     for (const client of fs.readdirSync(clientsPath)) {
       const clientPath = path.join(clientsPath, client);
 
+      if (!fs.existsSync(clientPath)) continue;
       if (!fs.statSync(clientPath).isDirectory()) continue;
 
-      const files = fs
-        .readdirSync(clientPath)
-        .filter((file) => file.endsWith(".xlsx") && file !== "master.xlsx");
+      const files = fs.readdirSync(clientPath).filter((file) => !shouldSkipWorkbook(file));
 
       for (const file of files) {
-        const locationFromFile = file.replace(".xlsx", "");
+        const locationFromFile = safeLocationFromFile(file);
         const filePath = path.join(clientPath, file);
 
-        const workbook = XLSX.readFile(filePath);
+        if (!fs.existsSync(filePath)) {
+          skippedFiles.push({
+            client,
+            file,
+            filePath,
+            reason: "Workbook path does not exist",
+          });
+          continue;
+        }
+
+        let workbook: XLSX.WorkBook;
+
+        try {
+          workbook = XLSX.readFile(filePath);
+        } catch (error: any) {
+          skippedFiles.push({
+            client,
+            file,
+            filePath,
+            reason: error?.message || "Could not read workbook",
+          });
+
+          logSystemError("mrn-watcher-workbook-read-skip", {
+            client,
+            file,
+            filePath,
+            error: error?.message || String(error),
+          });
+
+          continue;
+        }
+
+        scannedFiles.push(filePath);
+
         const rows = readRows(workbook, "MRN_Log");
 
         if (rows.length === 0) continue;
@@ -158,11 +215,23 @@ export async function GET() {
           };
 
           overdue.push(item);
-          markMrnOverdueInDeliveryHistory({
-            client,
-            location,
-            dn_number: dnNumber,
-          });
+
+          try {
+            markMrnOverdueInDeliveryHistory({
+              client,
+              location,
+              dn_number: dnNumber,
+            });
+          } catch (error: any) {
+            skippedFiles.push({
+              client,
+              file,
+              filePath,
+              reason: `Could not mark DN overdue in Delivery_History: ${
+                error?.message || String(error)
+              }`,
+            });
+          }
 
           if (alreadyDrafted) {
             return {
@@ -187,26 +256,53 @@ export async function GET() {
         });
 
         if (changed) {
-          workbook.Sheets["MRN_Log"] = XLSX.utils.json_to_sheet(updatedRows);
-          backupFile(filePath);
-          XLSX.writeFile(workbook, filePath);
+          try {
+            workbook.Sheets["MRN_Log"] = XLSX.utils.json_to_sheet(updatedRows);
+            backupFile(filePath);
+            XLSX.writeFile(workbook, filePath);
+          } catch (error: any) {
+            skippedFiles.push({
+              client,
+              file,
+              filePath,
+              reason: error?.message || "Could not write updated workbook",
+            });
+
+            logSystemError("mrn-watcher-workbook-write-skip", {
+              client,
+              file,
+              filePath,
+              error: error?.message || String(error),
+            });
+          }
         }
       }
     }
 
     for (const item of overdue) {
-      appendMasterRow(item.client, "Pending_Actions", {
-        client: item.client,
-        location: item.location,
-        po_number: item.po_number,
-        dn_number: item.dn_number,
-        action_type: "MRN Follow-up",
-        pending_action: `MRN overdue. Review Gmail draft follow-up for DN ${item.dn_number}`,
-        status: "Open",
-        human_required: true,
-        mrn_due_date: item.mrn_due_date,
-        overdue_days: item.overdue_days,
-      });
+      try {
+        appendMasterRow(item.client, "Pending_Actions", {
+          client: item.client,
+          location: item.location,
+          po_number: item.po_number,
+          dn_number: item.dn_number,
+          action_type: "MRN Follow-up",
+          pending_action: `MRN overdue. Review Gmail draft follow-up for DN ${item.dn_number}`,
+          status: "Open",
+          human_required: true,
+          mrn_due_date: item.mrn_due_date,
+          overdue_days: item.overdue_days,
+        });
+      } catch (error: any) {
+        skippedFiles.push({
+          client: item.client,
+          location: item.location,
+          dn_number: item.dn_number,
+          reason: `Could not append Pending_Actions row: ${
+            error?.message || String(error)
+          }`,
+        });
+      }
 
       const draftResult = await createMrnFollowupDraft(item);
 
@@ -216,23 +312,36 @@ export async function GET() {
       });
 
       if (draftResult.success) {
-        appendMasterRow(item.client, "Pending_Actions", {
-          client: item.client,
-          location: item.location,
-          po_number: item.po_number,
-          dn_number: item.dn_number,
-          action_type: "MRN Gmail Draft Created",
-          pending_action: `Gmail MRN follow-up draft created for DN ${item.dn_number}. Human review required before sending.`,
-          status: "Open",
-          human_required: true,
-          gmail_draft_id: draftResult.draft_id || "",
-        });
+        try {
+          appendMasterRow(item.client, "Pending_Actions", {
+            client: item.client,
+            location: item.location,
+            po_number: item.po_number,
+            dn_number: item.dn_number,
+            action_type: "MRN Gmail Draft Created",
+            pending_action: `Gmail MRN follow-up draft created for DN ${item.dn_number}. Human review required before sending.`,
+            status: "Open",
+            human_required: true,
+            gmail_draft_id: draftResult.draft_id || "",
+          });
+        } catch (error: any) {
+          skippedFiles.push({
+            client: item.client,
+            location: item.location,
+            dn_number: item.dn_number,
+            reason: `Could not append Gmail draft Pending_Actions row: ${
+              error?.message || String(error)
+            }`,
+          });
+        }
       }
     }
 
     logSystemEvent("mrn_watcher_completed", "MRN watcher completed", {
       overdue_count: overdue.length,
       draft_count: draftResults.filter((r) => r.draftResult?.success).length,
+      scanned_files: scannedFiles.length,
+      skipped_files: skippedFiles.length,
     });
 
     return Response.json({
@@ -240,6 +349,8 @@ export async function GET() {
       overdue_count: overdue.length,
       overdue,
       draftResults,
+      scanned_files: scannedFiles,
+      skipped_files: skippedFiles,
     });
   } catch (error: any) {
     logSystemError("mrn-watcher", error);
