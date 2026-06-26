@@ -29,6 +29,48 @@ function firstDeliveryDate(analysis: any) {
   return analysis.delivery_dates?.[0] || analysis.delivery_date || "";
 }
 
+function unique(values: string[]) {
+  return [...new Set(values.map((v) => String(v || "").trim()).filter(Boolean))];
+}
+
+function normalizePoNumber(value: any) {
+  const raw = String(value || "")
+    .trim()
+    .replace(/^POC\s*:\s*/i, "")
+    .replace(/^PO\s*[:#-]\s*/i, "")
+    .replace(/[),.;]+$/g, "")
+    .trim();
+
+  if (!raw) return "";
+
+  const compact = raw.replace(/\s+/g, "");
+
+  const fullPoMatch = compact.match(/PO\/KSA\/20\d{2}\/\d{1,6}/i);
+  if (fullPoMatch) return fullPoMatch[0].toUpperCase();
+
+  const numericMatch = compact.match(/^\d{2,6}$/);
+  if (numericMatch) return numericMatch[0];
+
+  return "";
+}
+
+function cleanPoNumbers(analysis: any) {
+  const values = Array.isArray(analysis.po_numbers)
+    ? analysis.po_numbers
+    : analysis.po_number
+      ? [analysis.po_number]
+      : [];
+
+  const cleaned = unique(values.map(normalizePoNumber).filter(Boolean));
+  const full = cleaned.filter((po) => /^PO\/KSA\/20\d{2}\/\d{1,6}$/i.test(po));
+
+  return full.length > 0 ? full : cleaned.filter((po) => /^\d{2,6}$/.test(po));
+}
+
+function primaryPoNumber(analysis: any) {
+  return cleanPoNumbers(analysis)[0] || "UNKNOWN_PO";
+}
+
 function normalizeItemsWithDeliveryDate(items: any[], deliveryDate: string) {
   return (items || [])
     .map((item: any) => ({
@@ -64,6 +106,46 @@ function allItemsFromAnalysis(analysis: any, deliveryDate: string) {
   return [...directItems, ...locationItems];
 }
 
+function itemFingerprint(item: any) {
+  return [
+    String(item.item_code || "").toLowerCase().trim(),
+    String(item.item_name || "").toLowerCase().trim().replace(/\s+/g, " "),
+    Number(item.quantity || item.qty || item.required_qty || 0),
+    String(item.unit || "").toLowerCase().trim(),
+    String(item.delivery_date || "").trim(),
+  ].join(":");
+}
+
+function deliveryActionKey({
+  client,
+  location,
+  analysis,
+  deliveryDate,
+  items,
+}: {
+  client: string;
+  location: string;
+  analysis: any;
+  deliveryDate: string;
+  items: any[];
+}) {
+  const poNumbers = cleanPoNumbers(analysis).join(",");
+  const itemKey = items.map(itemFingerprint).sort().join("|");
+
+  return [
+    "delivery-action",
+    client,
+    location,
+    analysis.email_type || "",
+    poNumbers,
+    deliveryDate || "",
+    itemKey || "no-items",
+  ]
+    .join(":")
+    .toLowerCase()
+    .replace(/[^a-z0-9:/|,._-]+/g, "_");
+}
+
 function createHumanReviewAction({
   client,
   location,
@@ -76,6 +158,7 @@ function createHumanReviewAction({
   reason: string;
 }) {
   const deliveryDate = firstDeliveryDate(analysis);
+  const poNumbers = cleanPoNumbers(analysis);
 
   const row = {
     client,
@@ -84,9 +167,7 @@ function createHumanReviewAction({
     subject: analysis.subject || "",
     from: analysis.source_email_from || analysis.from || "",
     email_type: analysis.email_type || "Other",
-    po_numbers: Array.isArray(analysis.po_numbers)
-      ? analysis.po_numbers.join(", ")
-      : analysis.po_number || "",
+    po_numbers: poNumbers.join(", "),
     dn_numbers: Array.isArray(analysis.dn_numbers)
       ? analysis.dn_numbers.join(", ")
       : "",
@@ -185,7 +266,7 @@ function audit({
     workflow,
     confidence: analysis.confidence,
     delivery_date: firstDeliveryDate(analysis),
-    po_numbers: analysis.po_numbers || analysis.po_number || "",
+    po_numbers: cleanPoNumbers(analysis),
     dn_numbers: analysis.dn_numbers || "",
     mrn_numbers: analysis.mrn_numbers || "",
     items_found: itemsFound,
@@ -202,11 +283,11 @@ export async function POST(req: Request) {
     analysis = await req.json();
 
     const forceProcess =
-  analysis.force_process === true ||
-  analysis.force === true ||
-  analysis.already_processed_before_force === true ||
-  String(analysis.force_process || "").toLowerCase() === "true" ||
-  String(analysis.force || "").toLowerCase() === "true";
+      analysis.force_process === true ||
+      analysis.force === true ||
+      analysis.already_processed_before_force === true ||
+      String(analysis.force_process || "").toLowerCase() === "true" ||
+      String(analysis.force || "").toLowerCase() === "true";
 
     if (
       analysis.source_email_id &&
@@ -288,8 +369,7 @@ export async function POST(req: Request) {
 
         const result = recordPO({
           client,
-          po_number:
-            analysis.po_numbers?.[0] || analysis.po_number || "UNKNOWN_PO",
+          po_number: primaryPoNumber(analysis),
           po_type: "Quarterly PO",
           location,
           items,
@@ -398,8 +478,7 @@ export async function POST(req: Request) {
 
       const result = recordPO({
         client,
-        po_number:
-          analysis.po_numbers?.[0] || analysis.po_number || "UNKNOWN_PO",
+        po_number: primaryPoNumber(analysis),
         po_type: emailType,
         location,
         items,
@@ -451,16 +530,53 @@ export async function POST(req: Request) {
       const location = defaultLocation;
       const items = allItemsFromAnalysis(analysis, deliveryDate);
 
+      const actionKey = deliveryActionKey({
+        client,
+        location,
+        analysis,
+        deliveryDate,
+        items,
+      });
+
+      if (hasProcessedEmail(actionKey) && !forceProcess) {
+        audit({
+          client,
+          location,
+          analysis,
+          status: "Duplicate",
+          reason:
+            "Duplicate delivery action blocked by operational action key. This usually means a reply thread repeated an already logged delivery request.",
+          workflow: emailType,
+          rowsAdded: 0,
+          itemsFound: items.length,
+        });
+
+        finishEmail(analysis.source_email_id);
+
+        return Response.json({
+          success: false,
+          duplicate: true,
+          workflow: emailType,
+          message: "Duplicate delivery action blocked",
+          action_key: actionKey,
+          client,
+          location,
+          delivery_date: deliveryDate,
+          items_found: items.length,
+        });
+      }
+
+      const poNumbers = cleanPoNumbers(analysis);
+
       const deliveryTaskRow = {
         client,
         location,
         source_email_id: analysis.source_email_id || "",
+        action_key: actionKey,
         subject: analysis.subject || "",
         from: analysis.source_email_from || analysis.from || "",
         email_type: emailType,
-        po_numbers: Array.isArray(analysis.po_numbers)
-          ? analysis.po_numbers.join(", ")
-          : "",
+        po_numbers: poNumbers.join(", "),
         delivery_dates: Array.isArray(analysis.delivery_dates)
           ? analysis.delivery_dates.join(", ")
           : "",
@@ -487,6 +603,8 @@ export async function POST(req: Request) {
         status: "Open",
       });
 
+      markEmailProcessed(actionKey);
+
       if (items.length === 0) {
         createHumanReviewAction({
           client,
@@ -505,6 +623,7 @@ export async function POST(req: Request) {
           workflow: emailType,
           status: items.length ? "Processed" : "Needs Human Review",
           items_found: items.length,
+          action_key: actionKey,
         },
       });
 
@@ -530,12 +649,14 @@ export async function POST(req: Request) {
         location,
         delivery_date: deliveryDate,
         items_found: items.length,
+        action_key: actionKey,
         human_review_created: items.length === 0,
       });
     }
 
     if (emailType === "MRN") {
       const location = defaultLocation;
+      const poNumbers = cleanPoNumbers(analysis);
 
       appendRowToSheet(client, location, "MRN_Log", {
         client,
@@ -549,9 +670,7 @@ export async function POST(req: Request) {
         dn_numbers: Array.isArray(analysis.dn_numbers)
           ? analysis.dn_numbers.join(", ")
           : "",
-        po_numbers: Array.isArray(analysis.po_numbers)
-          ? analysis.po_numbers.join(", ")
-          : "",
+        po_numbers: poNumbers.join(", "),
         status: "Received",
         notes: analysis.notes || "",
       });
@@ -568,9 +687,7 @@ export async function POST(req: Request) {
         dn_numbers: Array.isArray(analysis.dn_numbers)
           ? analysis.dn_numbers.join(", ")
           : "",
-        po_numbers: Array.isArray(analysis.po_numbers)
-          ? analysis.po_numbers.join(", ")
-          : "",
+        po_numbers: poNumbers.join(", "),
         status: "Received",
         notes: analysis.notes || "",
       });
@@ -579,7 +696,7 @@ export async function POST(req: Request) {
         client,
         location,
         dn_numbers: analysis.dn_numbers || [],
-        po_numbers: analysis.po_numbers || [],
+        po_numbers: poNumbers,
         mrn_numbers: analysis.mrn_numbers || [],
       });
 

@@ -3,6 +3,10 @@ import { logSystemEvent, logSystemError } from "@/lib/system/logger";
 
 const MIN_CONFIDENCE_TO_AUTOMATE = 0.7;
 
+function unique(values: string[]) {
+  return [...new Set(values.map((v) => String(v || "").trim()).filter(Boolean))];
+}
+
 function extractRefs(text: string, regex: RegExp) {
   const matches: string[] = [];
   let match;
@@ -11,7 +15,102 @@ function extractRefs(text: string, regex: RegExp) {
     if (match[1]) matches.push(match[1].trim());
   }
 
-  return [...new Set(matches)];
+  return unique(matches);
+}
+
+function normalizePoNumber(value: any) {
+  const raw = String(value || "")
+    .trim()
+    .replace(/^POC\s*:\s*/i, "")
+    .replace(/^PO\s*[:#-]\s*/i, "")
+    .replace(/[),.;]+$/g, "")
+    .trim();
+
+  if (!raw) return "";
+
+  const compact = raw.replace(/\s+/g, "");
+
+  const fullPoMatch = compact.match(/PO\/KSA\/20\d{2}\/\d{1,6}/i);
+  if (fullPoMatch) return fullPoMatch[0].toUpperCase();
+
+  const numericMatch = compact.match(/^\d{2,6}$/);
+  if (numericMatch) return numericMatch[0];
+
+  return "";
+}
+
+function normalizeDnNumber(value: any) {
+  const raw = String(value || "")
+    .trim()
+    .replace(/^DN\s*[:#-]\s*/i, "DN-")
+    .replace(/[),.;]+$/g, "")
+    .trim();
+
+  const match = raw.match(/DN[-/ ]?\d{2,6}[-/]\d{2}[-/]\d{2}/i);
+  return match ? match[0].replace(/\s+/g, "-").toUpperCase() : "";
+}
+
+function normalizeMrnNumber(value: any) {
+  const raw = String(value || "")
+    .trim()
+    .replace(/^MRN\s*[:#-]\s*/i, "MRN-")
+    .replace(/[),.;]+$/g, "")
+    .trim();
+
+  const match = raw.match(/MRN[-/ ]?[A-Z0-9-]{3,30}/i);
+  return match ? match[0].replace(/\s+/g, "-").toUpperCase() : "";
+}
+
+function cleanPoNumbers(values: any[] = []) {
+  const cleaned = unique(
+    values
+      .flatMap((value) => {
+        const raw = String(value || "");
+
+        const fullMatches = raw.match(/PO\/KSA\/20\d{2}\/\d{1,6}/gi) || [];
+        const normalizedFull = fullMatches.map(normalizePoNumber).filter(Boolean);
+
+        const direct = normalizePoNumber(raw);
+
+        return [...normalizedFull, direct].filter(Boolean);
+      })
+      .filter(Boolean)
+  );
+
+  const fullPoNumbers = cleaned.filter((po) => /^PO\/KSA\/20\d{2}\/\d{1,6}$/i.test(po));
+
+  if (fullPoNumbers.length > 0) {
+    return unique(fullPoNumbers);
+  }
+
+  return cleaned.filter((po) => /^\d{2,6}$/.test(po));
+}
+
+function cleanDnNumbers(values: any[] = []) {
+  return unique(values.map(normalizeDnNumber).filter(Boolean));
+}
+
+function cleanMrnNumbers(values: any[] = []) {
+  return unique(values.map(normalizeMrnNumber).filter(Boolean));
+}
+
+function extractPoNumbersFromText(text: string) {
+  const matches = [
+    ...(text.match(/PO\/KSA\/20\d{2}\/\d{1,6}/gi) || []),
+    ...extractRefs(text, /\bPO\s*[:#-]?\s*(\d{2,6})\b/gi),
+  ];
+
+  return cleanPoNumbers(matches);
+}
+
+function extractDnNumbersFromText(text: string) {
+  const matches = text.match(/\bDN[-/ ]?\d{2,6}[-/]\d{2}[-/]\d{2}\b/gi) || [];
+  return cleanDnNumbers(matches);
+}
+
+function extractMrnNumbersFromText(text: string) {
+  const matches = text.match(/\bMRN[-/ ]?[A-Z0-9-]{3,30}\b/gi) || [];
+  return cleanMrnNumbers(matches);
 }
 
 function extractDates(text: string) {
@@ -28,7 +127,7 @@ function extractDates(text: string) {
     if (found) dates.push(...found);
   }
 
-  return [...new Set(dates)];
+  return unique(dates);
 }
 
 function extractSimpleItems(text: string) {
@@ -51,6 +150,14 @@ function extractSimpleItems(text: string) {
     const unit = String(qtyMatch[4] || "").trim();
 
     if (itemName.length < 3 || !quantity) continue;
+
+    if (
+      /confidentiality|privacy|disclaimer|recipient|sender|email|fax|telephone|copyright/i.test(
+        itemName
+      )
+    ) {
+      continue;
+    }
 
     items.push({
       item_code: "",
@@ -77,16 +184,38 @@ function forceOther(reason: string, original: any) {
   };
 }
 
+function cleanClassificationRefs(raw: any, text: string) {
+  const textPoNumbers = extractPoNumbersFromText(text);
+  const textDnNumbers = extractDnNumbersFromText(text);
+  const textMrnNumbers = extractMrnNumbersFromText(text);
+
+  const rawPoNumbers = Array.isArray(raw?.po_numbers)
+    ? raw.po_numbers
+    : raw?.po_number
+      ? [raw.po_number]
+      : [];
+
+  const rawDnNumbers = Array.isArray(raw?.dn_numbers) ? raw.dn_numbers : [];
+  const rawMrnNumbers = Array.isArray(raw?.mrn_numbers) ? raw.mrn_numbers : [];
+
+  const poNumbers = cleanPoNumbers([...rawPoNumbers, ...textPoNumbers]);
+  const dnNumbers = cleanDnNumbers([...rawDnNumbers, ...textDnNumbers]);
+  const mrnNumbers = cleanMrnNumbers([...rawMrnNumbers, ...textMrnNumbers]);
+
+  return {
+    ...raw,
+    po_numbers: poNumbers,
+    po_number: poNumbers[0] || "",
+    dn_numbers: dnNumbers,
+    mrn_numbers: mrnNumbers,
+  };
+}
+
 function postProcessClassification(raw: any, text: string) {
   const lower = text.toLowerCase();
   const confidence = Number(raw?.confidence || 0);
 
-  if (confidence < MIN_CONFIDENCE_TO_AUTOMATE) {
-    return forceOther(
-      `Low confidence classification blocked from automation. Confidence was ${confidence}.`,
-      raw
-    );
-  }
+  let cleaned = cleanClassificationRefs(raw, text);
 
   if (
     lower.includes("credit note") ||
@@ -94,8 +223,8 @@ function postProcessClassification(raw: any, text: string) {
     lower.includes("paid in our system") ||
     lower.includes("correct below invoice")
   ) {
-    return {
-      ...raw,
+    cleaned = {
+      ...cleaned,
       email_type: "Invoice Issue",
       confidence: Math.max(confidence, 0.8),
       human_required: true,
@@ -105,13 +234,25 @@ function postProcessClassification(raw: any, text: string) {
     };
   }
 
-  return raw;
+  if (Number(cleaned?.confidence || 0) < MIN_CONFIDENCE_TO_AUTOMATE) {
+    return forceOther(
+      `Low confidence classification blocked from automation. Confidence was ${Number(
+        cleaned?.confidence || 0
+      )}.`,
+      cleaned
+    );
+  }
+
+  return cleaned;
 }
 
 function fallbackClassify(text: string) {
   const lower = text.toLowerCase();
   const deliveryDates = extractDates(text);
   const simpleItems = extractSimpleItems(text);
+  const poNumbers = extractPoNumbersFromText(text);
+  const dnNumbers = extractDnNumbersFromText(text);
+  const mrnNumbers = extractMrnNumbersFromText(text);
 
   if (
     lower.includes("credit note") ||
@@ -122,9 +263,10 @@ function fallbackClassify(text: string) {
     return {
       email_type: "Invoice Issue",
       confidence: 0.82,
-      po_numbers: extractRefs(text, /po[\s:#-]*([a-z0-9/-]+)/gi),
-      dn_numbers: extractRefs(text, /dn[\s:#-]*([a-z0-9/-]+)/gi),
-      mrn_numbers: extractRefs(text, /mrn[\s:#-]*([a-z0-9/-]+)/gi),
+      po_numbers: poNumbers,
+      po_number: poNumbers[0] || "",
+      dn_numbers: dnNumbers,
+      mrn_numbers: mrnNumbers,
       items: simpleItems,
       human_required: true,
       recommended_action: "Review credit note / invoice issue manually",
@@ -141,9 +283,10 @@ function fallbackClassify(text: string) {
     return {
       email_type: "MRN",
       confidence: 0.78,
-      mrn_numbers: extractRefs(text, /mrn[\s:#-]*([a-z0-9/-]+)/gi),
-      dn_numbers: extractRefs(text, /dn[\s:#-]*([a-z0-9/-]+)/gi),
-      po_numbers: extractRefs(text, /po[\s:#-]*([a-z0-9/-]+)/gi),
+      mrn_numbers: mrnNumbers,
+      dn_numbers: dnNumbers,
+      po_numbers: poNumbers,
+      po_number: poNumbers[0] || "",
       human_required: true,
       recommended_action: "Review MRN references and sync with delivery history",
       notes: "Fallback classifier detected MRN-related wording.",
@@ -159,7 +302,8 @@ function fallbackClassify(text: string) {
     return {
       email_type: lower.includes("quarterly") ? "Quarterly PO" : "Additional PO",
       confidence: simpleItems.length > 0 ? 0.78 : 0.62,
-      po_numbers: extractRefs(text, /po[\s:#-]*([a-z0-9/-]+)/gi),
+      po_numbers: poNumbers,
+      po_number: poNumbers[0] || "",
       delivery_dates: deliveryDates,
       delivery_date: deliveryDates[0] || "",
       items: simpleItems,
@@ -183,7 +327,8 @@ function fallbackClassify(text: string) {
     return {
       email_type: "Delivery Instruction",
       confidence: simpleItems.length > 0 ? 0.76 : 0.6,
-      po_numbers: extractRefs(text, /po[\s:#-]*([a-z0-9/-]+)/gi),
+      po_numbers: poNumbers,
+      po_number: poNumbers[0] || "",
       delivery_dates: deliveryDates,
       delivery_date: deliveryDates[0] || "",
       items: simpleItems,
@@ -201,6 +346,10 @@ function fallbackClassify(text: string) {
     return {
       email_type: "Invoice Issue",
       confidence: 0.72,
+      po_numbers: poNumbers,
+      po_number: poNumbers[0] || "",
+      dn_numbers: dnNumbers,
+      mrn_numbers: mrnNumbers,
       human_required: true,
       recommended_action: "Review invoice/payment issue manually",
       notes: "Fallback classifier detected invoice-related wording.",
@@ -210,6 +359,10 @@ function fallbackClassify(text: string) {
   return {
     email_type: "Other",
     confidence: 0.3,
+    po_numbers: poNumbers,
+    po_number: poNumbers[0] || "",
+    dn_numbers: dnNumbers,
+    mrn_numbers: mrnNumbers,
     human_required: true,
     recommended_action: "Review email manually",
     notes: "Fallback classifier could not confidently classify email.",
@@ -309,6 +462,8 @@ Rules:
 - Delivery Instruction / Delivery Reminder only if the email asks to deliver/follow up stock/items.
 - If item extraction is unclear, leave items empty and explain in notes.
 - Do not extract random words from privacy notices as PO numbers.
+- Only extract PO numbers matching PO/KSA/YYYY/NUMBER or clean numeric PO references.
+- Do not extract words like SED, RTABILITY, RESPONSIBLE, INTERNATIONAL, PDF, RECIPIENT, EMAIL, PRIVACY as PO numbers.
 - Client is "davita" only if sender/domain/text clearly indicates DaVita.
 - Location should be extracted from subject/body, for example KFH Al Ahsa, Khobar, Jeddah, Dammam.
 
@@ -385,6 +540,10 @@ export async function POST(req: Request) {
 
     return Response.json({
       ...normalized,
+      po_numbers: cleanPoNumbers((normalized as any).po_numbers || []),
+      po_number: cleanPoNumbers((normalized as any).po_numbers || [])[0] || "",
+      dn_numbers: cleanDnNumbers((normalized as any).dn_numbers || []),
+      mrn_numbers: cleanMrnNumbers((normalized as any).mrn_numbers || []),
       delivery_date:
         (normalized as any).delivery_date || normalized.delivery_dates?.[0] || "",
       classifier,
