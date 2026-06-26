@@ -22,11 +22,32 @@ function isAlreadyPackaged(row: any) {
   return false;
 }
 
+function groupIsBlocked(group: any) {
+  return (
+    group.is_blocked === true ||
+    group.has_missing_rate === true ||
+    group.has_vat_review === true ||
+    (Array.isArray(group.blocked_reasons) && group.blocked_reasons.length > 0)
+  );
+}
+
+function statusForGroup(group: any) {
+  if (groupIsBlocked(group)) {
+    const reasons = Array.isArray(group.blocked_reasons)
+      ? group.blocked_reasons.join(", ")
+      : "Review required";
+
+    return `Blocked - ${reasons}`;
+  }
+
+  return "Packaged - Pending Approval";
+}
+
 function markRowsPackaged(cycle: any) {
   const updatedWorkbooks = new Set<string>();
 
   for (const group of cycle.invoice_groups || []) {
-    if (group.has_missing_rate) continue;
+    if (groupIsBlocked(group)) continue;
 
     const workbookPath = group.source_workbook;
 
@@ -101,9 +122,7 @@ async function runInvoicePackageWorker(client = "davita") {
       taxability: item.taxability,
       tax_reason: item.tax_reason,
       needs_vat_review: item.needs_vat_review,
-      status: group.has_missing_rate
-        ? "Blocked - Missing Rate"
-        : "Packaged - Pending Approval",
+      status: statusForGroup(group),
     }))
   );
 
@@ -115,13 +134,17 @@ async function runInvoicePackageWorker(client = "davita") {
     success: true,
     package_id: cycle.package_id,
     invoice_groups: cycle.invoice_groups,
+    ready_invoice_groups: cycle.ready_invoice_groups || [],
+    blocked_invoice_groups: cycle.blocked_invoice_groups || [],
     counts: cycle.counts,
     excelPath,
     updatedWorkbooks,
     mrn_pending: cycle.mrn_pending,
     mrn_overdue: cycle.mrn_overdue,
     missing_rates: cycle.missing_rates,
-    note: "Invoice package drafted only. Sending still requires human approval.",
+    vat_review: cycle.vat_review || [],
+    note:
+      "Invoice package drafted only. Ready groups were marked pending approval. Blocked groups were included in Excel for review but were not marked packaged.",
   };
 }
 
