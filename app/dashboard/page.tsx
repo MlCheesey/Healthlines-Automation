@@ -49,6 +49,8 @@ import WorkflowHealthPanel from "@/components/dashboard/WorkflowHealthPanel";
 import WorkflowHistoryPanel from "@/components/dashboard/WorkflowHistoryPanel";
 import FinalReadinessPanel from "@/components/dashboard/FinalReadinessPanel";
 import ProductionReadinessPanel from "@/components/dashboard/ProductionReadinessPanel";
+import SaudiValidationPanel from "@/components/dashboard/SaudiValidationPanel";
+import WorkerStatusResetPanel from "@/components/dashboard/WorkerStatusResetPanel";
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState("Dashboard");
@@ -158,6 +160,9 @@ export default function DashboardPage() {
 
               {activeTab === "Settings" && (
                 <>
+                  <ProductionReadinessPanel />
+                  <SaudiValidationPanel />
+                  <WorkerStatusResetPanel />
                   <WorkflowHealthPanel />
                   <WorkflowHistoryPanel />
                   <AuditTimelinePanel />
@@ -165,7 +170,6 @@ export default function DashboardPage() {
                   <BackupPanel />
                   <SecurityStatusPanel />
                   <FinalReadinessPanel />
-                  <ProductionReadinessPanel />
                 </>
               )}
             </div>
