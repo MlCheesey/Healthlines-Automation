@@ -40,3 +40,9 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 data/system-status/invoice-cycle-schedule.json
+data/attachment-registry.json
+data/gmail-queue.json
+data/invoice-pdf-registry.json
+data/notifications.json
+data/retry-queue.json
+data/system-status/automation-worker-reset-backup-*.json
